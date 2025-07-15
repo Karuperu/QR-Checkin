@@ -1,0 +1,2271 @@
+import { createClient } from '@supabase/supabase-js'
+import bcrypt from 'bcryptjs'
+
+// ?˜ê²½ë³€?˜ë? ???ˆì „?˜ê²Œ ë¡œë“œ
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://uefmrjuvkwrvfrfifbqv.supabase.co'
+const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlZm1yanV2a3dydmZyZmlmYnF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE1OTM2MjQsImV4cCI6MjA2NzE2OTYyNH0.CNZbIw1s_aM4U9Z_Z52dsC4OVPPZJ91lvbcLtVhIhAQ'
+
+console.log('Supabase URL:', supabaseUrl)
+console.log('Supabase Key loaded:', supabaseAnonKey ? 'Yes' : 'No')
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+// ë¡œì»¬ ?œê°„ ê´€??? í‹¸ë¦¬í‹° ?¨ìˆ˜??export function getLocalTime(): Date {
+  return new Date()
+}
+
+export function toLocalISOString(date?: Date): string {
+  const localTime = date || new Date()
+  return localTime.toISOString()
+}
+
+// ë¡œì»¬ ?œê°„ ê¸°ì? ? ì§œ ?¬ë§·???¨ìˆ˜??export function formatLocalTime(date: Date | string): string {
+  const localDate = typeof date === 'string' ? new Date(date) : date
+  return localDate.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
+export function formatLocalDate(date: Date | string): string {
+  const localDate = typeof date === 'string' ? new Date(date) : date
+  return localDate.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+}
+
+export function formatLocalDateTime(date: Date | string): string {
+  const localDate = typeof date === 'string' ? new Date(date) : date
+  return localDate.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
+
+export function formatLocalDateRange(startDate: Date | string, endDate: Date | string): string {
+  const start = typeof startDate === 'string' ? new Date(startDate) : startDate
+  const end = typeof endDate === 'string' ? new Date(endDate) : endDate
+  
+  const startFormatted = start.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+  
+  const endFormatted = end.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+  
+  return `${startFormatted} ~ ${endFormatted}`
+}
+
+// ?„ì¬ ë¡œì»¬ ?œê°„ ê¸°ì? ? ì§œ ë¬¸ì??(YYYY-MM-DD)
+export function getTodayLocal(): string {
+  const localDate = new Date()
+  return localDate.toISOString().split('T')[0]
+}
+
+// ?¬ìš©???€???•ì˜
+export type UserRole = 'student' | 'faculty'
+
+export interface User {
+  id: string
+  user_id: string
+  name: string
+  department: string
+  role: UserRole
+  qr_code?: string  // ê°œì¸ QR ì½”ë“œ???µì…”?ë¡œ ë³€ê²?  is_active: boolean
+}
+
+// ë¹„ë?ë²ˆí˜¸ ë³µì¡??ê²€ì¦??¨ìˆ˜
+export function validatePassword(password: string): { isValid: boolean; errors: string[] } {
+  const errors: string[] = []
+  
+  if (password.length < 8) {
+    errors.push('ë¹„ë?ë²ˆí˜¸??8?ë¦¬ ?´ìƒ?´ì–´???©ë‹ˆ??')
+  }
+  
+  if (!/[a-zA-Z]/.test(password)) {
+    errors.push('ë¹„ë?ë²ˆí˜¸???ë¬¸?ê? ?¬í•¨?˜ì–´???©ë‹ˆ??')
+  }
+  
+  if (!/\d/.test(password)) {
+    errors.push('ë¹„ë?ë²ˆí˜¸???«ìê°€ ?¬í•¨?˜ì–´???©ë‹ˆ??')
+  }
+  
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+    errors.push('ë¹„ë?ë²ˆí˜¸???¹ìˆ˜ë¬¸ìê°€ ?¬í•¨?˜ì–´???©ë‹ˆ??')
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  }
+}
+
+// ?¬ìš©??ID ê²€ì¦??¨ìˆ˜
+export function validateUserId(userId: string, role: UserRole): { isValid: boolean; error?: string } {
+  switch (role) {
+    case 'student':
+      if (!/^\d{9}$/.test(userId)) {
+        return { isValid: false, error: '?™ë²ˆ?€ 9?ë¦¬ ?«ì?¬ì•¼ ?©ë‹ˆ??' }
+      }
+      break
+    case 'faculty':
+      if (!userId || userId.length < 3) {
+        return { isValid: false, error: 'êµì›ë²ˆí˜¸ë¥??¬ë°”ë¥´ê²Œ ?…ë ¥?´ì£¼?¸ìš”.' }
+      }
+      break
+
+  }
+  
+  return { isValid: true }
+}
+
+// ë¡œê·¸???¨ìˆ˜
+export async function loginUser(userId: string, password: string): Promise<User | null> {
+  try {
+    // ?¬ìš©???•ë³´ ì¡°íšŒ
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .single()
+
+    if (error || !user) {
+      return null
+    }
+
+    // ë¹„ë?ë²ˆí˜¸ ê²€ì¦?    const isPasswordValid = await bcrypt.compare(password, user.password_hash)
+    if (!isPasswordValid) {
+      return null
+    }
+
+    // ?¸ì…˜ ?€??    const userSession: User = {
+      id: user.id,
+      user_id: user.user_id,
+      name: user.name,
+      department: user.department,
+      role: user.role as UserRole,
+      qr_code: user.qr_code || undefined,  // ë¹?ë¬¸ì?´ì´ë©?undefinedë¡??¤ì •
+      is_active: user.is_active
+    }
+
+    localStorage.setItem('user_session', JSON.stringify(userSession))
+    return userSession
+  } catch (error) {
+    console.error('Login error:', error)
+    return null
+  }
+}
+
+// ?Œì›ê°€???¨ìˆ˜
+export async function registerUser(
+  userId: string,
+  name: string,
+  department: string,
+  role: UserRole,
+  password: string
+): Promise<User | null> {
+  try {
+    // ë¹„ë?ë²ˆí˜¸ ?´ì‹œ
+    const passwordHash = await bcrypt.hash(password, 10)
+    
+    // ?¬ìš©???•ë³´ ?€??(ê°œì¸ QR ì½”ë“œ ?œê±°)
+    const { data: user, error } = await supabase
+      .from('users')
+      .insert({
+        user_id: userId,
+        name,
+        department,
+        role,
+        password_hash: passwordHash,
+        qr_code: '', // ë¹?ë¬¸ì?´ë¡œ ?¤ì •
+        is_active: true
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Register error:', error)
+      return null
+    }
+
+    // ?¸ì…˜ ?€??    const userSession: User = {
+      id: user.id,
+      user_id: user.user_id,
+      name: user.name,
+      department: user.department,
+      role: user.role as UserRole,
+      qr_code: user.qr_code || undefined,  // ë¹?ë¬¸ì?´ì´ë©?undefinedë¡??¤ì •
+      is_active: user.is_active
+    }
+
+    localStorage.setItem('user_session', JSON.stringify(userSession))
+    return userSession
+  } catch (error) {
+    console.error('Register error:', error)
+    return null
+  }
+}
+
+// ?„ì¬ ë¡œê·¸?¸í•œ ?¬ìš©???•ë³´ ê°€?¸ì˜¤ê¸?export function getCurrentUser(): User | null {
+  try {
+    const sessionData = localStorage.getItem('user_session')
+    if (!sessionData) return null
+    
+    return JSON.parse(sessionData)
+  } catch (error) {
+    console.error('Error getting current user:', error)
+    return null
+  }
+}
+
+// ë¡œê·¸?„ì›ƒ ?¨ìˆ˜
+export function logoutUser(): void {
+  localStorage.removeItem('user_session')
+}
+
+// ?¬ìš©???¸ì…˜ ?ˆë¡œ ê³ ì¹¨ ?¨ìˆ˜
+export async function refreshUserSession(): Promise<User | null> {
+  try {
+    const currentUser = getCurrentUser()
+    if (!currentUser) return null
+
+    // ?°ì´?°ë² ?´ìŠ¤?ì„œ ìµœì‹  ?¬ìš©???•ë³´ ê°€?¸ì˜¤ê¸?    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('user_id', currentUser.user_id)
+      .eq('is_active', true)
+      .single()
+
+    if (error || !user) {
+      // ?¬ìš©???•ë³´ë¥?ì°¾ì„ ???†ìœ¼ë©?ë¡œê·¸?„ì›ƒ
+      logoutUser()
+      return null
+    }
+
+    // ?ˆë¡œ???¸ì…˜ ?•ë³´ë¡??…ë°?´íŠ¸
+    const userSession: User = {
+      id: user.id,
+      user_id: user.user_id,
+      name: user.name,
+      department: user.department,
+      role: user.role as UserRole,
+      qr_code: user.qr_code || undefined,  // ë¹?ë¬¸ì?´ì´ë©?undefinedë¡??¤ì •
+      is_active: user.is_active
+    }
+
+    localStorage.setItem('user_session', JSON.stringify(userSession))
+    return userSession
+  } catch (error) {
+    console.error('Error refreshing user session:', error)
+    return null
+  }
+}
+
+// ?¬ìš©??ID ì¤‘ë³µ ?•ì¸ ?¨ìˆ˜
+export async function checkUserIdExists(userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('user_id', userId)
+      .single()
+
+    if (error && error.code === 'PGRST116') {
+      // ?°ì´?°ê? ?†ìŒ (ì¤‘ë³µ ?†ìŒ)
+      return false
+    }
+
+    return !!data
+  } catch (error) {
+    console.error('Error checking user ID:', error)
+    return false
+  }
+}
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  public: {
+    Tables: {
+      attendance_records: {
+        Row: {
+          check_in_time: string | null
+          check_out_time: string | null
+          created_at: string | null
+          date: string
+          employee_id: string
+          id: string
+          notes: string | null
+          overtime_hours: number | null
+          status: string | null
+          updated_at: string | null
+          work_hours: number | null
+        }
+        Insert: {
+          check_in_time?: string | null
+          check_out_time?: string | null
+          created_at?: string | null
+          date: string
+          employee_id: string
+          id?: string
+          notes?: string | null
+          overtime_hours?: number | null
+          status?: string | null
+          updated_at?: string | null
+          work_hours?: number | null
+        }
+        Update: {
+          check_in_time?: string | null
+          check_out_time?: string | null
+          created_at?: string | null
+          date?: string
+          employee_id?: string
+          id?: string
+          notes?: string | null
+          overtime_hours?: number | null
+          status?: string | null
+          updated_at?: string | null
+          work_hours?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_records_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      departments: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      employees: {
+        Row: {
+          created_at: string | null
+          department_id: string
+          email: string | null
+          employee_id: string
+          id: string
+          is_active: boolean | null
+          name: string
+          phone: string | null
+          position: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          department_id: string
+          email?: string | null
+          employee_id: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          phone?: string | null
+          position?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          department_id?: string
+          email?: string | null
+          employee_id?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          phone?: string | null
+          position?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employees_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_attendance_logs: {
+        Row: {
+          created_at: string | null
+          id: string
+          location: string | null
+          scan_time: string
+          scan_type: string
+          student_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          location?: string | null
+          scan_time: string
+          scan_type: string
+          student_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          location?: string | null
+          scan_time?: string
+          scan_type?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_attendance_logs_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      students: {
+        Row: {
+          created_at: string | null
+          department: string
+          id: string
+          is_active: boolean | null
+          name: string
+          password_hash: string
+          qr_code: string
+          student_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          department: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          password_hash: string
+          qr_code: string
+          student_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          department?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          password_hash?: string
+          qr_code?: string
+          student_id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      user_user_attendance_logs: {
+        Row: {
+          created_at: string | null
+          id: string
+          location: string | null
+          scan_time: string
+          scan_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          location?: string | null
+          scan_time: string
+          scan_type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          location?: string | null
+          scan_time?: string
+          scan_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_user_attendance_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          created_at: string | null
+          department: string
+          id: string
+          is_active: boolean | null
+          name: string
+          password_hash: string
+          qr_code: string
+          role: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          department: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          password_hash: string
+          qr_code: string
+          role: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          department?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          password_hash?: string
+          qr_code?: string
+          role?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+} 
+
+// ??• ë³?ê¶Œí•œ ì²´í¬
+export const hasFacultyAccess = (user: User | null): boolean => {
+  return user?.role === 'faculty' && user?.is_active === true
+}
+
+export const canEditAttendance = (user: User | null): boolean => {
+  return user?.role === 'faculty' && user?.is_active === true
+}
+
+export const canViewAllAttendance = (user: User | null): boolean => {
+  return user?.role === 'faculty' && user?.is_active === true
+}
+
+// ì¶œí‡´ê·?ê¸°ë¡ ì¡°íšŒ (??• ë³??„í„°ë§?
+export const getAttendanceRecords = async (
+  user: User,
+  date: string,
+  roleFilter?: string,
+  userFilter?: string
+) => {
+  const startDate = new Date(date + 'T00:00:00')
+  const endDate = new Date(date + 'T23:59:59')
+  
+  let query = supabase
+    .from('user_user_attendance_logs')
+    .select(`
+      *,
+      users!user_user_attendance_logs_user_id_fkey (user_id, name, department, role)
+    `)
+    .gte('scan_time', startDate.toISOString())
+    .lte('scan_time', endDate.toISOString())
+    .order('scan_time', { ascending: false })
+
+  // ?™ìƒ?€ ?ì‹ ??ê¸°ë¡ë§?ë³????ˆìŒ
+  if (user.role === 'student') {
+    query = query.eq('user_id', user.id)
+  } else {
+    // ê´€ë¦¬ì/êµì§?ì? ?„í„° ?ìš© ê°€??    if (roleFilter && roleFilter !== 'all') {
+      // ?œë¸Œì¿¼ë¦¬ë¥??¬ìš©?˜ì—¬ ??• ë³??„í„°ë§?      const { data: filteredUsers } = await supabase
+        .from('users')
+        .select('id')
+        .eq('role', roleFilter)
+        .eq('is_active', true)
+      
+      if (filteredUsers && filteredUsers.length > 0) {
+        const userIds = filteredUsers.map(u => u.id)
+        query = query.in('user_id', userIds)
+      }
+    }
+    
+    if (userFilter && userFilter !== 'all') {
+      query = query.eq('user_id', userFilter)
+    }
+  }
+
+  return query
+}
+
+// ì¶œí‡´ê·?ê¸°ë¡ ?˜ì • (ê´€ë¦¬ì/êµì§?ë§Œ)
+export const updateAttendanceRecord = async (
+  recordId: string,
+  updates: {
+    scan_time?: string
+    scan_type?: AttendanceStatus
+    location?: string
+    absence_reason?: string
+  },
+  editorUser: User
+) => {
+  if (!canEditAttendance(editorUser)) {
+    throw new Error('ì¶œí‡´ê·?ê¸°ë¡???˜ì •??ê¶Œí•œ???†ìŠµ?ˆë‹¤.')
+  }
+
+  // ?…ë°?´íŠ¸ ?°ì´??ì¤€ë¹?  const updateData: any = {
+    ...updates,
+    is_edited: true,
+    edited_by: editorUser.id,
+            edited_at: toLocalISOString() // ë¡œì»¬ ?œê°„ ê¸°ì? ?˜ì • ?œê°„
+  }
+
+  // scan_time???œê³µ?˜ë©´ ISO ?•ì‹?¼ë¡œ ë³€?˜í•˜???€??  if (updates.scan_time) {
+    // ?…ë ¥ë°›ì? ?œê°„ (YYYY-MM-DDTHH:mm ?•ì‹)??ISO ë¬¸ì?´ë¡œ ë³€??    updateData.scan_time = new Date(updates.scan_time).toISOString()
+    console.log('?œê°„ ?˜ì •:', {
+      ?…ë ¥???œê°„: updates.scan_time,
+      ?€?¥ë _?œê°„: updateData.scan_time,
+      ?˜ì •?œê°„_KST: updateData.edited_at
+    })
+  }
+
+  const { error } = await supabase
+    .from('user_user_attendance_logs')
+    .update(updateData)
+    .eq('id', recordId)
+
+  if (error) throw error
+}
+
+// ì¶œí‡´ê·?ê¸°ë¡ ?? œ ?¨ìˆ˜
+export const deleteAttendanceRecord = async (
+  recordId: string,
+  editorUser: User
+) => {
+  if (!canEditAttendance(editorUser)) {
+    throw new Error('ì¶œí‡´ê·?ê¸°ë¡???? œ??ê¶Œí•œ???†ìŠµ?ˆë‹¤.')
+  }
+
+  const { error } = await supabase
+    .from('user_user_attendance_logs')
+    .delete()
+    .eq('id', recordId)
+
+  if (error) throw error
+}
+
+// ì¶œí‡´ê·??íƒœ ?€???•ì¥
+export type AttendanceStatus = 'checkin' | 'checkout' | 'absent' | 'vacation' | 'late' | 'early_leave'
+
+// ì¶œí‡´ê·?ê¸°ë¡ ?€???¨ìˆ˜
+export async function saveAttendanceRecord(
+  userId: string,
+  scanType: AttendanceStatus,
+  location?: string
+): Promise<boolean> {
+  try {
+    const timestamp = toLocalISOString() // ë¡œì»¬ ?œê°„ ê¸°ì? ?„ì¬ ?œê°„
+    console.log('ì¶œí‡´ê·?ê¸°ë¡ ?€???œë„:', {
+      userId,
+      scanType,
+      location,
+      timestamp_KST: timestamp,
+      timestamp_local: new Date().toLocaleString('ko-KR')
+    })
+
+    const insertData = {
+      user_id: userId,
+      scan_time: timestamp,
+      scan_type: scanType,
+      location: location || null
+    }
+
+    console.log('?½ì…???°ì´??', insertData)
+
+    const { data, error } = await supabase
+      .from('user_user_attendance_logs')
+      .insert(insertData)
+      .select()
+
+    if (error) {
+      console.error('ì¶œí‡´ê·?ê¸°ë¡ ?€???¤ë¥˜:', error)
+      console.error('?¤ë¥˜ ?ì„¸:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      })
+      return false
+    }
+
+    console.log('ì¶œí‡´ê·?ê¸°ë¡ ?€???±ê³µ:', data)
+    return true
+  } catch (error) {
+    console.error('ì¶œí‡´ê·?ê¸°ë¡ ?€???ˆì™¸:', error)
+    return false
+  }
+}
+
+// ?¬ìš©?ë³„ ì¶œí‡´ê·?ê¸°ë¡ ì¡°íšŒ ?¨ìˆ˜
+export async function getUserAttendanceRecords(
+  userId: string,
+  date?: string
+): Promise<any[]> {
+  try {
+    let query = supabase
+      .from('user_user_attendance_logs')
+      .select(`
+        *,
+        users!user_user_attendance_logs_user_id_fkey (
+          user_id,
+          name,
+          department,
+          role
+        )
+      `)
+      .eq('user_id', userId)
+      .order('scan_time', { ascending: false })
+
+    if (date) {
+      const startDate = new Date(date)
+      const endDate = new Date(date)
+      endDate.setDate(endDate.getDate() + 1)
+      
+      query = query
+        .gte('scan_time', startDate.toISOString())
+        .lt('scan_time', endDate.toISOString())
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('ì¶œí‡´ê·?ê¸°ë¡ ì¡°íšŒ ?¤ë¥˜:', error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('ì¶œí‡´ê·?ê¸°ë¡ ì¡°íšŒ ?¤ë¥˜:', error)
+    return []
+  }
+}
+
+// QR ?¸ì…˜ ?ì„± ?¨ìˆ˜ (êµì§?ìš©)
+export async function createQRSession(
+  location: string,
+  userId: string,
+  durationMinutes: number = 60
+): Promise<string | null> {
+  try {
+    const sessionToken = `QR_SESSION_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    
+    // ?„ì¬ ë¡œì»¬ ?œê°„??ê¸°ì??¼ë¡œ ë§Œë£Œ ?œê°„ ê³„ì‚°
+    const now = new Date()
+    const expiresAt = new Date(now)
+    
+    // 10ë¶??•ê° 1ì´??„ìœ¼ë¡?ë§Œë£Œ ?œê°„ ?¤ì •
+    if (durationMinutes === 10) {
+      const currentMinutes = expiresAt.getMinutes()
+      const nextTenMinuteMark = Math.ceil((currentMinutes + 1) / 10) * 10
+      expiresAt.setMinutes(nextTenMinuteMark, 0, 0) // ?¤ìŒ 10ë¶??•ê°?¼ë¡œ ?¤ì •
+      expiresAt.setSeconds(expiresAt.getSeconds() - 1) // 1ì´?ë¹¼ê¸°
+    } else {
+      expiresAt.setMinutes(expiresAt.getMinutes() + durationMinutes)
+    }
+
+    console.log('QR ?¸ì…˜ ?ì„±:', {
+      ?„ì¬?œê°„_ë¡œì»¬: now.toLocaleString('ko-KR'),
+      ë§Œë£Œ?œê°„_ë¡œì»¬: expiresAt.toLocaleString('ko-KR'),
+      ë§Œë£Œ?œê°„_UTC: expiresAt.toISOString()
+    })
+
+    const { error } = await supabase
+      .from('qr_sessions')
+      .insert({
+        session_token: sessionToken,
+        location: location,
+        created_by: userId,
+        expires_at: expiresAt.toISOString()
+      })
+
+    if (error) {
+      console.error('QR ?¸ì…˜ ?ì„± ?¤ë¥˜:', error)
+      return null
+    }
+
+    return sessionToken
+  } catch (error) {
+    console.error('QR ?¸ì…˜ ?ì„± ?¤ë¥˜:', error)
+    return null
+  }
+}
+
+// QR ?¸ì…˜ ê²€ì¦??¨ìˆ˜
+export async function validateQRSession(sessionToken: string): Promise<{
+  isValid: boolean
+  location?: string
+  error?: string
+}> {
+  try {
+    // ?„ì‹œ ?¸ì…˜ ? í°??ê²½ìš° (ë¡œê·¸???†ì´ ?ì„±??QR ì½”ë“œ)
+    if (sessionToken.startsWith('temp_session_')) {
+      // ?„ì‹œ ?¸ì…˜?€ ??ƒ ? íš¨?˜ë‹¤ê³?ê°€??(?¤ì œë¡œëŠ” ë§Œë£Œ ?œê°„ ì²´í¬ ?„ìš”)
+      return { 
+        isValid: true, 
+        location: '?„ì‹œ ?„ì¹˜' // QR ì½”ë“œ?ì„œ ?„ì¹˜ ?•ë³´ë¥?ê°€?¸ì?????      }
+    }
+
+    // ?•ê·œ ?¸ì…˜ ? í°??ê²½ìš° DB?ì„œ ê²€ì¦?    const { data, error } = await supabase
+      .from('qr_sessions')
+      .select('*')
+      .eq('session_token', sessionToken)
+      .eq('is_active', true)
+      .single()
+
+    if (error || !data) {
+      return { isValid: false, error: '? íš¨?˜ì? ?Šì? QR ì½”ë“œ?…ë‹ˆ??' }
+    }
+
+    // ë§Œë£Œ ?œê°„ ?•ì¸
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
+      return { isValid: false, error: 'ë§Œë£Œ??QR ì½”ë“œ?…ë‹ˆ??' }
+    }
+
+    return { isValid: true, location: data.location }
+  } catch (error) {
+    console.error('QR ?¸ì…˜ ê²€ì¦??¤ë¥˜:', error)
+    return { isValid: false, error: 'QR ì½”ë“œ ê²€ì¦?ì¤??¤ë¥˜ê°€ ë°œìƒ?ˆìŠµ?ˆë‹¤.' }
+  }
+}
+
+// ?œì„± QR ?¸ì…˜ ì¡°íšŒ
+export const getActiveQRSession = async (userId: string) => {
+  const { data, error } = await supabase
+    .from('qr_sessions')
+    .select('*')
+    .eq('created_by', userId)
+    .eq('is_active', true)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    throw error
+  }
+
+  return data
+}
+
+// ?„ì¹˜ë³??œì„± QR ?¸ì…˜ ì¡°íšŒ
+export const getActiveQRSessionByLocation = async (userId: string, location: string) => {
+  const { data, error } = await supabase
+    .from('qr_sessions')
+    .select('*')
+    .eq('created_by', userId)
+    .eq('location', location)
+    .eq('is_active', true)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    console.log('?œì„± ?¸ì…˜ ?†ìŒ ?ëŠ” ì¡°íšŒ ?¤ë¥˜:', error.message)
+    return null
+  }
+
+  return data
+}
+
+// QR ?¸ì…˜ ë¹„í™œ?±í™”
+export const deactivateQRSession = async (sessionId: string, userId: string) => {
+  const { error } = await supabase
+    .from('qr_sessions')
+    .update({ is_active: false })
+    .eq('id', sessionId)
+    .eq('created_by', userId)
+
+  if (error) throw error
+}
+
+// ?¬ìš©??ëª©ë¡ ì¡°íšŒ (ê´€ë¦¬ì/êµì§?ë§Œ)
+export const getUsers = async (user: User, roleFilter?: string) => {
+  if (!canViewAllAttendance(user)) {
+    throw new Error('?¬ìš©??ëª©ë¡??ì¡°íšŒ??ê¶Œí•œ???†ìŠµ?ˆë‹¤.')
+  }
+
+  let query = supabase
+    .from('users')
+    .select('*')
+    .eq('is_active', true)
+    .order('name')
+
+  if (roleFilter && roleFilter !== 'all') {
+    query = query.eq('role', roleFilter)
+  }
+
+  return query
+}
+
+// ì¶œí‡´ê·??µê³„ ì¡°íšŒ
+export const getAttendanceStats = async (user: User, date: string) => {
+  const startDate = new Date(date + 'T00:00:00')
+  const endDate = new Date(date + 'T23:59:59')
+  
+  let query = supabase
+    .from('user_user_attendance_logs')
+    .select('scan_type, users(role)')
+    .gte('scan_time', startDate.toISOString())
+    .lte('scan_time', endDate.toISOString())
+
+  // ?™ìƒ?€ ?ì‹ ??ê¸°ë¡ë§?  if (user.role === 'student') {
+    query = query.eq('user_id', user.id)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+
+  const stats = {
+    total: data?.length || 0,
+    checkin: data?.filter(record => record.scan_type === 'checkin').length || 0,
+    checkout: data?.filter(record => record.scan_type === 'checkout').length || 0,
+    byRole: {
+      student: data?.filter(record => record.users && (record.users as any).role === 'student').length || 0,
+      faculty: data?.filter(record => record.users && (record.users as any).role === 'faculty').length || 0,
+      admin: data?.filter(record => record.users && (record.users as any).role === 'admin').length || 0
+    }
+  }
+
+  return stats
+} 
+
+// êµìˆ˜??ì¶œí‡´ê·??µê³„ ?¨ìˆ˜??export interface AttendanceStatistics {
+  todayAttendance: {
+    checkin: User[]
+    checkout: User[]
+    absent: User[]
+    vacation: User[]
+    totalStudents: number
+    checkinCount: number
+    checkoutCount: number
+    absentCount: number
+    vacationCount: number
+  }
+  weeklyStats: {
+    date: string
+    status: AttendanceStatus | null
+    checkinTime: string | null
+    checkoutTime: string | null
+    student: {
+      name: string
+      user_id: string
+      department: string
+    }
+  }[]
+  dailyStats: {
+    [date: string]: {
+      checkin: number
+      checkout: number
+      absent: number
+      vacation: number
+      total: number
+    }
+  }
+}
+
+// ?¤ëŠ˜??ì¶œê·¼ ?„í™© ì¡°íšŒ (êµìˆ˜??
+export async function getTodayAttendanceStatus(): Promise<{
+  checkin: (User & { checkinTime?: string })[]
+  checkout: (User & { checkinTime?: string, checkoutTime?: string })[]
+  absent: User[]
+  vacation: (User & { vacationStartDate?: string, vacationEndDate?: string })[]
+  totalStudents: number
+  checkinCount: number
+  checkoutCount: number
+  absentCount: number
+  vacationCount: number
+}> {
+  try {
+    // ëª¨ë“  ?œì„± ?™ìƒ ì¡°íšŒ
+    const { data: allStudents, error: studentsError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'student')
+      .eq('is_active', true)
+      .order('name')
+
+    if (studentsError) throw studentsError
+
+    // ?¤ëŠ˜??ëª¨ë“  ì¶œí‡´ê·?ê¸°ë¡ ì¡°íšŒ
+    const today = new Date()
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+
+    const { data: todayAttendance, error: attendanceError } = await supabase
+      .from('user_user_attendance_logs')
+      .select(`
+        user_id,
+        scan_type,
+        scan_time,
+        is_edited,
+        edited_at,
+        users!user_user_attendance_logs_user_id_fkey (
+          id,
+          user_id,
+          name,
+          department,
+          role
+        )
+      `)
+      .gte('scan_time', startOfDay.toISOString())
+      .lt('scan_time', endOfDay.toISOString())
+      .order('scan_time', { ascending: false })
+
+    if (attendanceError) throw attendanceError
+
+    // ?¤ëŠ˜ ?¹ì¸???´ê? ? ì²­ ì¡°íšŒ
+    const todayStr = today.toISOString().split('T')[0]
+    const { data: todayVacations, error: vacationError } = await supabase
+      .from('vacation_requests')
+      .select(`
+        user_id,
+        start_date,
+        end_date,
+        users!vacation_requests_user_id_fkey (
+          id,
+          user_id,
+          name,
+          department,
+          role
+        )
+      `)
+      .eq('status', 'approved')
+      .lte('start_date', todayStr)
+      .gte('end_date', todayStr)
+
+    if (vacationError) throw vacationError
+
+    // ?™ìƒë³?ìµœì‹  ?íƒœ ë°??œê°„ ?•ë³´ ?Œì•…
+    const studentStatusMap = new Map<string, {
+      status: AttendanceStatus,
+      checkinTime?: string,
+      checkoutTime?: string
+    }>()
+    
+    // ?˜ì •??ê¸°ë¡?€ edited_at??ê¸°ì??¼ë¡œ, ?ë³¸ ê¸°ë¡?€ scan_time??ê¸°ì??¼ë¡œ ìµœì‹  ?íƒœ ê²°ì •
+    const sortedRecords = todayAttendance?.filter(record => 
+      record.users && (record.users as any).role === 'student'
+    ).sort((a, b) => {
+      const timeA = a.is_edited && a.edited_at ? new Date(a.edited_at) : new Date(a.scan_time)
+      const timeB = b.is_edited && b.edited_at ? new Date(b.edited_at) : new Date(b.scan_time)
+      return timeB.getTime() - timeA.getTime()
+    })
+    
+    // ê°??™ìƒ??ì¶œí‡´ê·??œê°„ ?•ë³´ ?˜ì§‘
+    const studentTimeMap = new Map<string, {
+      checkinTime?: string,
+      checkoutTime?: string
+    }>()
+    
+    // ëª¨ë“  ê¸°ë¡???œíšŒ?˜ì—¬ ê°??™ìƒ??ì²?ë²ˆì§¸ ì¶œê·¼?œê°„ê³?ë§ˆì?ë§??´ê·¼?œê°„??ì°¾ê¸°
+    const checkinTimes = new Map<string, string>()
+    const checkoutTimes = new Map<string, string>()
+    
+    // ?œê°„?œìœ¼ë¡??•ë ¬ (?¤ë˜???œì„œë¶€??
+    const timeOrderedRecords = todayAttendance?.filter(record => 
+      record.users && (record.users as any).role === 'student'
+    ).sort((a, b) => {
+      return new Date(a.scan_time).getTime() - new Date(b.scan_time).getTime()
+    })
+    
+    // ì²?ë²ˆì§¸ ì¶œê·¼ ?œê°„ê³?ë§ˆì?ë§??´ê·¼ ?œê°„ ?˜ì§‘
+    timeOrderedRecords?.forEach(record => {
+      const studentId = record.user_id
+      const scanType = record.scan_type as AttendanceStatus
+      const scanTime = record.scan_time
+      
+      if (scanType === 'checkin' && !checkinTimes.has(studentId)) {
+        checkinTimes.set(studentId, scanTime)
+      } else if (scanType === 'checkout') {
+        checkoutTimes.set(studentId, scanTime) // ë§ˆì?ë§??´ê·¼ ?œê°„?¼ë¡œ ê³„ì† ?…ë°?´íŠ¸
+      }
+    })
+    
+         // ?œê°„ ?•ë³´ ë§?êµ¬ì„±
+     const allStudentIds = new Set([...checkinTimes.keys(), ...checkoutTimes.keys()])
+     allStudentIds.forEach((studentId: string) => {
+       studentTimeMap.set(studentId, {
+         checkinTime: checkinTimes.get(studentId),
+         checkoutTime: checkoutTimes.get(studentId)
+       })
+     })
+    
+    // ìµœì‹  ?íƒœ ê²°ì • (ìµœì‹  ê¸°ë¡ ê¸°ì?)
+    sortedRecords?.forEach(record => {
+      const studentId = record.user_id
+      const scanType = record.scan_type as AttendanceStatus
+      
+      if (!studentStatusMap.has(studentId)) {
+        const timeInfo = studentTimeMap.get(studentId) || {}
+        studentStatusMap.set(studentId, {
+          status: scanType,
+          checkinTime: timeInfo.checkinTime,
+          checkoutTime: timeInfo.checkoutTime
+        })
+      }
+    })
+
+    // ?´ê? ì¤‘ì¸ ?™ìƒ ?•ë³´ ?˜ì§‘
+    const vacationStudentMap = new Map<string, {
+      startDate: string,
+      endDate: string
+    }>()
+    
+    todayVacations?.forEach(vacation => {
+      if (vacation.users && (vacation.users as any).role === 'student') {
+        vacationStudentMap.set(vacation.user_id, {
+          startDate: vacation.start_date,
+          endDate: vacation.end_date
+        })
+      }
+    })
+
+    // ?íƒœë³??™ìƒ ë¶„ë¥˜
+    const checkinStudents: (User & { checkinTime?: string })[] = []
+    const checkoutStudents: (User & { checkinTime?: string, checkoutTime?: string })[] = []
+    const absentStudents: User[] = []
+    const vacationStudents: (User & { vacationStartDate?: string, vacationEndDate?: string })[] = []
+
+    allStudents?.forEach(student => {
+      const vacationInfo = vacationStudentMap.get(student.id)
+      
+      // ?´ê? ì¤‘ì¸ ?™ìƒ?€ ?°ì„ ?ìœ¼ë¡??´ê?ë¡?ë¶„ë¥˜
+      if (vacationInfo) {
+        vacationStudents.push({
+          ...student,
+          vacationStartDate: vacationInfo.startDate,
+          vacationEndDate: vacationInfo.endDate
+        })
+        return
+      }
+      
+      const statusInfo = studentStatusMap.get(student.id)
+      const status = statusInfo?.status
+      
+      switch (status) {
+        case 'checkin':
+          checkinStudents.push({
+            ...student,
+            checkinTime: statusInfo?.checkinTime
+          })
+          break
+        case 'checkout':
+          checkoutStudents.push({
+            ...student,
+            checkinTime: statusInfo?.checkinTime,
+            checkoutTime: statusInfo?.checkoutTime
+          })
+          break
+        case 'absent':
+          absentStudents.push(student)
+          break
+        case 'vacation':
+          // ì¶œí‡´ê·?ê¸°ë¡?ì„œ ?´ê?ë¡??œì‹œ??ê²½ìš° (?¹ì¸???´ê? ? ì²­ ?†ì´)
+          vacationStudents.push(student)
+          break
+        default:
+          // ê¸°ë¡???†ëŠ” ê²½ìš° ê²°ê·¼?¼ë¡œ ë¶„ë¥˜
+          absentStudents.push(student)
+          break
+      }
+    })
+
+    return {
+      checkin: checkinStudents,
+      checkout: checkoutStudents,
+      absent: absentStudents,
+      vacation: vacationStudents,
+      totalStudents: allStudents?.length || 0,
+      checkinCount: checkinStudents.length,
+      checkoutCount: checkoutStudents.length,
+      absentCount: absentStudents.length,
+      vacationCount: vacationStudents.length
+    }
+  } catch (error) {
+    console.error('?¤ëŠ˜ ì¶œê·¼ ?„í™© ì¡°íšŒ ?¤ë¥˜:', error)
+    return {
+      checkin: [],
+      checkout: [],
+      absent: [],
+      vacation: [],
+      totalStudents: 0,
+      checkinCount: 0,
+      checkoutCount: 0,
+      absentCount: 0,
+      vacationCount: 0
+    }
+  }
+}
+
+// 1ì£¼ì¼ê°??™ìƒ ì¶œí‡´ê·??µê³„ ì¡°íšŒ (êµìˆ˜??
+export async function getWeeklyAttendanceStats(): Promise<{
+  date: string
+  status: AttendanceStatus | null
+  checkinTime: string | null
+  checkoutTime: string | null
+  student: {
+    name: string
+    user_id: string
+    department: string
+  }
+}[]> {
+  try {
+    // ?¤ëŠ˜???¬í•¨??ì§€??7?¼ê°„???°ì´??ì¡°íšŒ (?œêµ­?œê°„ ê¸°ì?)
+    const now = new Date()
+    const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)) // UTC + 9?œê°„
+    const endDate = new Date(koreaTime)
+    endDate.setDate(endDate.getDate() + 1) // ?¤ëŠ˜ ?¬í•¨?˜ê¸° ?„í•´ ?´ì¼ê¹Œì?
+    
+    const startDate = new Date(koreaTime)
+    startDate.setDate(startDate.getDate() - 6) // ?¤ëŠ˜ ?¬í•¨ 7??
+    console.log('ì£¼ê°„ ?µê³„ ? ì§œ ë²”ìœ„:', {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      startDateKST: startDate.toLocaleString('ko-KR'),
+      endDateKST: endDate.toLocaleString('ko-KR')
+    })
+
+    // ë¨¼ì? ?™ìƒ ?¬ìš©?ë“¤??IDë¥?ê°€?¸ì˜´
+    const { data: students, error: studentsError } = await supabase
+      .from('users')
+      .select('id, user_id, name, department')
+      .eq('role', 'student')
+
+    if (studentsError) throw studentsError
+
+    const studentIds = students?.map(s => s.id) || []
+
+    // ?˜ì •??ê¸°ë¡?€ ?˜ì •???œê°„???°ì„ ?ìœ¼ë¡??¬ìš©
+    const { data: weeklyData, error } = await supabase
+      .from('user_attendance_logs')
+      .select('scan_time, scan_type, user_id, is_edited, edited_at')
+      .in('user_id', studentIds)
+      .gte('scan_time', startDate.toISOString())
+      .lt('scan_time', endDate.toISOString())
+      .order('scan_time', { ascending: true })
+
+    if (error) throw error
+
+    // ?™ìƒ ?•ë³´ë¥?IDë¡?ë§¤í•‘
+    const studentMap = new Map(students?.map(s => [s.id, s]) || [])
+
+    // ? ì§œë³? ?™ìƒë³„ë¡œ ê·¸ë£¹??    const groupedData: { [key: string]: any } = {}
+
+    weeklyData?.forEach(record => {
+      const student = studentMap.get(record.user_id)
+      if (!student) return
+
+      // ?˜ì •??ê¸°ë¡?´ë©´ ?˜ì •???œê°„???¬ìš©, ?„ë‹ˆë©??ë˜ ?œê°„ ?¬ìš©
+      const effectiveTime = record.is_edited && record.edited_at ? record.edited_at : record.scan_time
+      const date = new Date(effectiveTime).toISOString().split('T')[0]
+      const studentKey = `${date}_${student.user_id}`
+
+      if (!groupedData[studentKey]) {
+        groupedData[studentKey] = {
+          date,
+          student: {
+            name: student.name,
+            user_id: student.user_id,
+            department: student.department
+          },
+          status: null,
+          checkinTime: null,
+          checkoutTime: null
+        }
+      }
+
+      if (record.scan_type === 'checkin') {
+        groupedData[studentKey].checkinTime = effectiveTime
+        groupedData[studentKey].status = 'checkin'
+      } else if (record.scan_type === 'checkout') {
+        groupedData[studentKey].checkoutTime = effectiveTime
+        groupedData[studentKey].status = 'checkout'
+      } else if (record.scan_type === 'absent') {
+        groupedData[studentKey].status = 'absent'
+      } else if (record.scan_type === 'vacation') {
+        groupedData[studentKey].status = 'vacation'
+      }
+    })
+
+    const result = Object.values(groupedData).sort((a: any, b: any) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
+
+    console.log('ì£¼ê°„ ?µê³„ ê²°ê³¼:', result)
+    return result
+  } catch (error) {
+    console.error('ì£¼ê°„ ì¶œí‡´ê·??µê³„ ì¡°íšŒ ?¤ë¥˜:', error)
+    return []
+  }
+}
+
+// ?¼ë³„ ì¶œì„ ?µê³„ ì¡°íšŒ (êµìˆ˜??
+export async function getDailyAttendanceStats(days: number = 30): Promise<{
+  [date: string]: {
+    checkin: number
+    checkout: number
+    absent: number
+    vacation: number
+    total: number
+  }
+}> {
+  try {
+    // ?„ì²´ ?™ìƒ ??ì¡°íšŒ
+    const { data: allStudents, error: studentsError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('role', 'student')
+
+    if (studentsError) throw studentsError
+
+    const totalStudents = allStudents?.length || 0
+
+    // ?¤ëŠ˜???¬í•¨??ì§€??N?¼ê°„??ì¶œê·¼ ?°ì´??ì¡°íšŒ (?œêµ­?œê°„ ê¸°ì?)
+    const now = new Date()
+    const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)) // UTC + 9?œê°„
+    const endDate = new Date(koreaTime)
+    endDate.setDate(endDate.getDate() + 1) // ?¤ëŠ˜ ?¬í•¨?˜ê¸° ?„í•´ ?´ì¼ê¹Œì?
+    
+    const startDate = new Date(koreaTime)
+    startDate.setDate(startDate.getDate() - (days - 1)) // ?¤ëŠ˜ ?¬í•¨ N??
+    console.log('?¼ë³„ ?µê³„ ? ì§œ ë²”ìœ„:', {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      startDateKST: startDate.toLocaleString('ko-KR'),
+      endDateKST: endDate.toLocaleString('ko-KR'),
+      totalStudents
+    })
+
+    // ?˜ì •??ê¸°ë¡?€ ?˜ì •???œê°„???°ì„ ?ìœ¼ë¡??¬ìš©
+    const { data: attendanceData, error: attendanceError } = await supabase
+      .from('user_attendance_logs')
+      .select(`
+        scan_time,
+        scan_type,
+        user_id,
+        is_edited,
+        edited_at,
+        users!user_attendance_logs_user_id_fkey (role)
+      `)
+      .eq('users.role', 'student')
+      .gte('scan_time', startDate.toISOString())
+      .lt('scan_time', endDate.toISOString())
+
+    if (attendanceError) throw attendanceError
+
+    // ? ì§œë³„ë¡œ ê·¸ë£¹??    const dailyStats: { [date: string]: { checkin: number; checkout: number; absent: number; vacation: number; total: number } } = {}
+
+    // ? ì§œ ë²”ìœ„ ì´ˆê¸°??(?œêµ­?œê°„ ê¸°ì?)
+    for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0]
+      dailyStats[dateStr] = {
+        checkin: 0,
+        checkout: 0,
+        absent: totalStudents,
+        vacation: 0,
+        total: totalStudents
+      }
+    }
+
+    console.log('ì´ˆê¸°?”ëœ ?¼ë³„ ?µê³„:', dailyStats)
+
+    // ? ì§œë³? ?™ìƒë³„ë¡œ ìµœì‹  ?íƒœ ?Œì•…
+    const studentStatusByDate: { [key: string]: AttendanceStatus } = {}
+    
+    // ë¨¼ì? ëª¨ë“  ê¸°ë¡???œê°„?œìœ¼ë¡??•ë ¬?˜ì—¬ ìµœì‹  ?íƒœ ?Œì•…
+    attendanceData?.forEach(record => {
+      // ?˜ì •??ê¸°ë¡?´ë©´ ?˜ì •???œê°„???¬ìš©, ?„ë‹ˆë©??ë˜ ?œê°„ ?¬ìš©
+      const effectiveTime = record.is_edited && record.edited_at ? record.edited_at : record.scan_time
+      const date = new Date(effectiveTime).toISOString().split('T')[0]
+      const studentDateKey = `${record.user_id}_${date}`
+      
+      if (dailyStats[date]) {
+        // ê°™ì? ? ì§œ???¬ëŸ¬ ê¸°ë¡???ˆìœ¼ë©?ê°€??ìµœì‹  ?íƒœë¡???–´?€
+        studentStatusByDate[studentDateKey] = record.scan_type as AttendanceStatus
+      }
+    })
+    
+    // ?™ìƒë³?ìµœì‹  ?íƒœë¥?ê¸°ì??¼ë¡œ ?µê³„ ê³„ì‚°
+    Object.entries(studentStatusByDate).forEach(([studentDateKey, status]) => {
+      const [, date] = studentDateKey.split('_')
+      
+      if (dailyStats[date]) {
+        if (status === 'checkin') {
+          dailyStats[date].checkin += 1
+          dailyStats[date].absent -= 1
+        } else if (status === 'checkout') {
+          dailyStats[date].checkout += 1
+          dailyStats[date].absent -= 1 // checkout??ì¶œì„?¼ë¡œ ê°„ì£¼
+        } else if (status === 'absent') {
+          // absent???´ë? ì´ˆê¸°?”ë˜???ˆìŒ
+        } else if (status === 'vacation') {
+          dailyStats[date].vacation += 1
+          dailyStats[date].absent -= 1
+        }
+      }
+    })
+
+    console.log('ìµœì¢… ?¼ë³„ ?µê³„:', dailyStats)
+    return dailyStats
+  } catch (error) {
+    console.error('?¼ë³„ ì¶œì„ ?µê³„ ì¡°íšŒ ?¤ë¥˜:', error)
+    return {}
+  }
+} 
+
+// êµìˆ˜ê°€ ?™ìƒ??ì¶œí‡´ê·??íƒœë¥??˜ë™?¼ë¡œ ?¤ì •?˜ëŠ” ?¨ìˆ˜
+export async function setStudentAttendanceStatus(
+  studentId: string,
+  status: AttendanceStatus,
+  date: string,
+  editorUser: User,
+  location?: string
+): Promise<boolean> {
+  try {
+    // êµìˆ˜ ê¶Œí•œ ?•ì¸
+    if (!hasFacultyAccess(editorUser)) {
+      throw new Error('ì¶œí‡´ê·??íƒœë¥?ë³€ê²½í•  ê¶Œí•œ???†ìŠµ?ˆë‹¤.')
+    }
+
+    // ?´ë‹¹ ? ì§œ??ê¸°ì¡´ ê¸°ë¡ ?•ì¸
+    const startDate = new Date(date)
+    const endDate = new Date(date)
+    endDate.setDate(endDate.getDate() + 1)
+
+    const { data: existingRecords, error: fetchError } = await supabase
+      .from('user_attendance_logs')
+      .select('*')
+      .eq('user_id', studentId)
+      .gte('scan_time', startDate.toISOString())
+      .lt('scan_time', endDate.toISOString())
+
+    if (fetchError) throw fetchError
+
+    const timestamp = new Date().toISOString()
+
+    // ê¸°ì¡´ ê¸°ë¡???ˆìœ¼ë©??…ë°?´íŠ¸, ?†ìœ¼ë©??ˆë¡œ ?ì„±
+    if (existingRecords && existingRecords.length > 0) {
+      // ê°€??ìµœê·¼ ê¸°ë¡ ?…ë°?´íŠ¸
+      const latestRecord = existingRecords[existingRecords.length - 1]
+      
+      const { error: updateError } = await supabase
+        .from('user_attendance_logs')
+        .update({
+          scan_type: status,
+          location: location || null,
+          is_edited: true,
+          edited_by: editorUser.id,
+          edited_at: timestamp
+        })
+        .eq('id', latestRecord.id)
+
+      if (updateError) throw updateError
+    } else {
+      // ??ê¸°ë¡ ?ì„±
+      const { error: insertError } = await supabase
+        .from('user_attendance_logs')
+        .insert({
+          user_id: studentId,
+          scan_time: timestamp,
+          scan_type: status,
+          location: location || null,
+          is_edited: true,
+          edited_by: editorUser.id,
+          edited_at: timestamp
+        })
+
+      if (insertError) throw insertError
+    }
+
+    return true
+  } catch (error) {
+    console.error('?™ìƒ ì¶œí‡´ê·??íƒœ ?¤ì • ?¤ë¥˜:', error)
+    return false
+  }
+}
+
+// ?íƒœë³??¼ë²¨ ë°˜í™˜ ?¨ìˆ˜
+export function getAttendanceStatusLabel(status: AttendanceStatus): string {
+  switch (status) {
+    case 'checkin':
+      return 'ì¶œê·¼'
+    case 'checkout':
+      return '?´ê·¼'
+    case 'absent':
+      return 'ê²°ê·¼'
+    case 'vacation':
+      return '?´ê?'
+    case 'late':
+      return 'ì§€ê°?
+    case 'early_leave':
+      return 'ì¡°ê¸°?´ê·¼'
+    default:
+      return '?????†ìŒ'
+  }
+}
+
+// ?íƒœë³??‰ìƒ ë°˜í™˜ ?¨ìˆ˜
+export function getAttendanceStatusColor(status: AttendanceStatus): string {
+  switch (status) {
+    case 'checkin':
+      return 'bg-green-100 text-green-800'
+    case 'checkout':
+      return 'bg-blue-100 text-blue-800'
+    case 'absent':
+      return 'bg-red-100 text-red-800'
+    case 'vacation':
+      return 'bg-yellow-100 text-yellow-800'
+    case 'late':
+      return 'bg-orange-100 text-orange-800'
+    case 'early_leave':
+      return 'bg-purple-100 text-purple-800'
+    default:
+      return 'bg-gray-100 text-gray-800'
+  }
+} 
+
+// ?´ê? ? ì²­ ê´€???€??export type VacationRequestType = 'vacation' | 'sick_leave' | 'personal'
+export type VacationRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export interface VacationRequest {
+  id: string
+  user_id: string
+  start_date: string
+  end_date: string
+  reason: string
+  request_type: VacationRequestType
+  status: VacationRequestStatus
+  reviewer_id?: string
+  reviewed_at?: string
+  review_comment?: string
+  created_at: string
+  updated_at: string
+  users?: {
+    user_id: string
+    name: string
+    department: string
+    role: string
+  }
+  reviewer?: {
+    user_id: string
+    name: string
+    department: string
+    role: string
+  }
+}
+
+// ?´ê? ? ì²­ ?ì„± ?¨ìˆ˜
+export async function createVacationRequest(
+  userId: string,
+  startDate: string,
+  endDate: string,
+  reason: string,
+  requestType: VacationRequestType = 'vacation'
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('vacation_requests')
+      .insert({
+        user_id: userId,
+        start_date: startDate,
+        end_date: endDate,
+        reason: reason,
+        request_type: requestType,
+        status: 'pending'
+      })
+
+    if (error) throw error
+    return true
+  } catch (error) {
+    console.error('?´ê? ? ì²­ ?ì„± ?¤ë¥˜:', error)
+    return false
+  }
+}
+
+// ?´ê? ? ì²­ ëª©ë¡ ì¡°íšŒ (êµìˆ˜??- ëª¨ë“  ? ì²­, ?™ìƒ??- ë³¸ì¸ ? ì²­ë§?
+export async function getVacationRequests(
+  user: User,
+  status?: VacationRequestStatus
+): Promise<VacationRequest[]> {
+  try {
+    let query = supabase
+      .from('vacation_requests')
+      .select(`
+        *,
+        users!vacation_requests_user_id_fkey (
+          user_id,
+          name,
+          department,
+          role
+        ),
+        reviewer:users!vacation_requests_reviewer_id_fkey (
+          user_id,
+          name,
+          department,
+          role
+        )
+      `)
+      .order('created_at', { ascending: false })
+
+    // ?™ìƒ?€ ë³¸ì¸ ? ì²­ë§?ì¡°íšŒ
+    if (user.role === 'student') {
+      query = query.eq('user_id', user.id)
+    }
+
+    // ?íƒœ ?„í„°
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data, error } = await query
+
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    console.error('?´ê? ? ì²­ ëª©ë¡ ì¡°íšŒ ?¤ë¥˜:', error)
+    return []
+  }
+}
+
+// ?´ê? ? ì²­ ?¹ì¸/ê±°ì ˆ ?¨ìˆ˜
+export async function reviewVacationRequest(
+  requestId: string,
+  reviewerId: string,
+  status: 'approved' | 'rejected',
+  reviewComment?: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('vacation_requests')
+      .update({
+        status: status,
+        reviewer_id: reviewerId,
+        reviewed_at: new Date().toISOString(),
+        review_comment: reviewComment || null
+      })
+      .eq('id', requestId)
+
+    if (error) throw error
+
+    // ?¹ì¸??ê²½ìš° ?´ë‹¹ ê¸°ê°„???´ê? ì¶œí‡´ê·?ê¸°ë¡ ?ë™ ?ì„±
+    if (status === 'approved') {
+      const { data: request } = await supabase
+        .from('vacation_requests')
+        .select('user_id, start_date, end_date')
+        .eq('id', requestId)
+        .single()
+
+      if (request) {
+        await createVacationAttendanceRecords(
+          request.user_id,
+          request.start_date,
+          request.end_date
+        )
+      }
+    }
+
+    return true
+  } catch (error) {
+    console.error('?´ê? ? ì²­ ê²€???¤ë¥˜:', error)
+    return false
+  }
+}
+
+// ?¹ì¸???´ê? ê¸°ê°„???ë™?¼ë¡œ ?´ê? ì¶œí‡´ê·?ê¸°ë¡ ?ì„±
+async function createVacationAttendanceRecords(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<void> {
+  try {
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const records = []
+
+    // ?œì‘?¼ë???ì¢…ë£Œ?¼ê¹Œì§€ ë°˜ë³µ
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      const dateStr = date.toISOString().split('T')[0]
+      
+      // ?´ë‹¹ ? ì§œ???´ë? ê¸°ë¡???ˆëŠ”ì§€ ?•ì¸
+      const { data: existingRecord } = await supabase
+        .from('user_attendance_logs')
+        .select('id')
+        .eq('user_id', userId)
+        .gte('scan_time', `${dateStr}T00:00:00Z`)
+        .lt('scan_time', `${dateStr}T23:59:59Z`)
+        .limit(1)
+
+      // ê¸°ì¡´ ê¸°ë¡???†ìœ¼ë©??´ê? ê¸°ë¡ ?ì„±
+      if (!existingRecord || existingRecord.length === 0) {
+        records.push({
+          user_id: userId,
+          scan_time: `${dateStr}T09:00:00Z`, // ?¤ì „ 9?œë¡œ ?¤ì •
+          scan_type: 'vacation',
+          location: '?´ê?'
+        })
+      }
+    }
+
+    if (records.length > 0) {
+      const { error } = await supabase
+        .from('user_attendance_logs')
+        .insert(records)
+
+      if (error) throw error
+    }
+  } catch (error) {
+    console.error('?´ê? ì¶œí‡´ê·?ê¸°ë¡ ?ì„± ?¤ë¥˜:', error)
+  }
+}
+
+// ?€ê¸?ì¤‘ì¸ ?´ê? ? ì²­ ê°œìˆ˜ ì¡°íšŒ (êµìˆ˜??
+export async function getPendingVacationRequestsCount(): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('vacation_requests')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+
+    if (error) throw error
+    return count || 0
+  } catch (error) {
+    console.error('?€ê¸?ì¤‘ì¸ ?´ê? ? ì²­ ê°œìˆ˜ ì¡°íšŒ ?¤ë¥˜:', error)
+    return 0
+  }
+}
+
+// ê²°ì„ ?¬ìœ  ?…ë°?´íŠ¸ ?¨ìˆ˜
+export async function updateAbsenceReason(
+  recordId: string,
+  absenceReason: string,
+  editorUser: User
+): Promise<boolean> {
+  try {
+    // ?™ìƒ?€ ?ì‹ ??ê²°ì„ ê¸°ë¡ë§? êµì§?ì? ëª¨ë“  ê¸°ë¡???˜ì •?????ˆìŒ
+    if (editorUser.role === 'student') {
+      // ?™ìƒ??ê²½ìš° ?ì‹ ??ê¸°ë¡?¸ì? ?•ì¸
+      const { data: record } = await supabase
+        .from('user_attendance_logs')
+        .select('user_id')
+        .eq('id', recordId)
+        .single()
+      
+      if (!record || record.user_id !== editorUser.id) {
+        throw new Error('?ì‹ ??ê²°ì„ ê¸°ë¡ë§??˜ì •?????ˆìŠµ?ˆë‹¤.')
+      }
+    } else if (!canEditAttendance(editorUser)) {
+      throw new Error('ê²°ì„ ?¬ìœ ë¥??˜ì •??ê¶Œí•œ???†ìŠµ?ˆë‹¤.')
+    }
+
+    const { error } = await supabase
+      .from('user_attendance_logs')
+      .update({
+        absence_reason: absenceReason,
+        is_edited: true,
+        edited_by: editorUser.id,
+        edited_at: toLocalISOString()
+      })
+      .eq('id', recordId)
+
+    if (error) throw error
+    return true
+  } catch (error) {
+    console.error('ê²°ì„ ?¬ìœ  ?…ë°?´íŠ¸ ?¤ë¥˜:', error)
+    return false
+  }
+}
+
+// ?´ê? ? ì²­ ?€???¼ë²¨ ë°˜í™˜
+export function getVacationRequestTypeLabel(type: VacationRequestType): string {
+  switch (type) {
+    case 'vacation':
+      return '?´ê?'
+    case 'sick_leave':
+      return 'ë³‘ê?'
+    case 'personal':
+      return 'ê°œì¸?¬ì •'
+    default:
+      return '?????†ìŒ'
+  }
+}
+
+// ?´ê? ? ì²­ ?íƒœ ?¼ë²¨ ë°˜í™˜
+export function getVacationRequestStatusLabel(status: VacationRequestStatus): string {
+  switch (status) {
+    case 'pending':
+      return '?€ê¸?ì¤?
+    case 'approved':
+      return '?¹ì¸??
+    case 'rejected':
+      return 'ê±°ì ˆ??
+    default:
+      return '?????†ìŒ'
+  }
+}
+
+// ?´ê? ? ì²­ ?íƒœ ?‰ìƒ ë°˜í™˜
+export function getVacationRequestStatusColor(status: VacationRequestStatus): string {
+  switch (status) {
+    case 'pending':
+      return 'bg-yellow-100 text-yellow-800'
+    case 'approved':
+      return 'bg-green-100 text-green-800'
+    case 'rejected':
+      return 'bg-red-100 text-red-800'
+    default:
+      return 'bg-gray-100 text-gray-800'
+  }
+} 
+
+// ê·¼ë¬´?œê°„ ?¤ì • ê´€???¨ìˆ˜??export interface WorkHours {
+  id: string
+  department: string
+  start_time: string  // HH:MM ?•ì‹
+  end_time: string    // HH:MM ?•ì‹
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+// ë¶€?œë³„ ê·¼ë¬´?œê°„ ì¡°íšŒ (?°ì´?°ë² ?´ìŠ¤ ?ëŠ” ë¡œì»¬ ?¤í† ë¦¬ì?)
+export async function getWorkHours(department: string): Promise<WorkHours | null> {
+  try {
+    const { data, error } = await supabase
+      .from('work_hours')
+      .select('*')
+      .eq('department', department)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // ?°ì´?°ê? ?†ëŠ” ê²½ìš° ë¡œì»¬ ?¤í† ë¦¬ì??ì„œ ì¡°íšŒ
+        return getWorkHoursFromLocalStorage(department)
+      }
+      if (error.code === '42P01') {
+        // ?Œì´ë¸”ì´ ?†ëŠ” ê²½ìš° ë¡œì»¬ ?¤í† ë¦¬ì??ì„œ ì¡°íšŒ
+        console.warn('work_hours ?Œì´ë¸”ì´ ì¡´ì¬?˜ì? ?ŠìŠµ?ˆë‹¤. ë¡œì»¬ ?¤í† ë¦¬ì?ë¥??¬ìš©?©ë‹ˆ??')
+        return getWorkHoursFromLocalStorage(department)
+      }
+      throw error
+    }
+
+    return data
+  } catch (error) {
+    console.error('ê·¼ë¬´?œê°„ ì¡°íšŒ ?¤ë¥˜, ë¡œì»¬ ?¤í† ë¦¬ì? ?¬ìš©:', error)
+    return getWorkHoursFromLocalStorage(department)
+  }
+}
+
+// ë¡œì»¬ ?¤í† ë¦¬ì??ì„œ ê·¼ë¬´?œê°„ ì¡°íšŒ
+function getWorkHoursFromLocalStorage(department: string): WorkHours | null {
+  try {
+    const stored = localStorage.getItem(`work_hours_${department}`)
+    if (stored) {
+      return JSON.parse(stored)
+    }
+    
+    // ê¸°ë³¸ ê·¼ë¬´?œê°„ ë°˜í™˜
+    return {
+      id: `local_${department}`,
+      department,
+      start_time: '09:00',
+      end_time: '18:00',
+      created_by: 'local',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  } catch (error) {
+    console.error('ë¡œì»¬ ?¤í† ë¦¬ì? ê·¼ë¬´?œê°„ ì¡°íšŒ ?¤ë¥˜:', error)
+    return null
+  }
+}
+
+// ë¶€?œë³„ ê·¼ë¬´?œê°„ ?¤ì • (?°ì´?°ë² ?´ìŠ¤ ?ëŠ” ë¡œì»¬ ?¤í† ë¦¬ì?)
+export async function setWorkHours(
+  department: string,
+  startTime: string,
+  endTime: string,
+  userId: string
+): Promise<boolean> {
+  try {
+    // ê¸°ì¡´ ?¤ì •???ˆëŠ”ì§€ ?•ì¸
+    const existingWorkHours = await getWorkHours(department)
+    
+    try {
+      if (existingWorkHours && existingWorkHours.id.startsWith('local_')) {
+        // ë¡œì»¬ ?¤í† ë¦¬ì? ?…ë°?´íŠ¸
+        return setWorkHoursToLocalStorage(department, startTime, endTime, userId)
+      }
+      
+      if (existingWorkHours) {
+        // ?°ì´?°ë² ?´ìŠ¤ ?…ë°?´íŠ¸
+        const { error } = await supabase
+          .from('work_hours')
+          .update({
+            start_time: startTime,
+            end_time: endTime,
+            updated_at: new Date().toISOString()
+          })
+          .eq('department', department)
+
+        if (error) throw error
+      } else {
+        // ?ˆë¡œ ?ì„±
+        const { error } = await supabase
+          .from('work_hours')
+          .insert({
+            department,
+            start_time: startTime,
+            end_time: endTime,
+            created_by: userId
+          })
+
+        if (error) throw error
+      }
+
+      return true
+    } catch (dbError: any) {
+      if (dbError.code === '42P01') {
+        // ?Œì´ë¸”ì´ ?†ëŠ” ê²½ìš° ë¡œì»¬ ?¤í† ë¦¬ì? ?¬ìš©
+        console.warn('work_hours ?Œì´ë¸”ì´ ?†ì–´ ë¡œì»¬ ?¤í† ë¦¬ì?ë¥??¬ìš©?©ë‹ˆ??')
+        return setWorkHoursToLocalStorage(department, startTime, endTime, userId)
+      }
+      throw dbError
+    }
+  } catch (error) {
+    console.error('ê·¼ë¬´?œê°„ ?¤ì • ?¤ë¥˜, ë¡œì»¬ ?¤í† ë¦¬ì? ?¬ìš©:', error)
+    return setWorkHoursToLocalStorage(department, startTime, endTime, userId)
+  }
+}
+
+// ë¡œì»¬ ?¤í† ë¦¬ì???ê·¼ë¬´?œê°„ ?€??function setWorkHoursToLocalStorage(
+  department: string,
+  startTime: string,
+  endTime: string,
+  userId: string
+): boolean {
+  try {
+    const workHours: WorkHours = {
+      id: `local_${department}`,
+      department,
+      start_time: startTime,
+      end_time: endTime,
+      created_by: userId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+    
+    localStorage.setItem(`work_hours_${department}`, JSON.stringify(workHours))
+    return true
+  } catch (error) {
+    console.error('ë¡œì»¬ ?¤í† ë¦¬ì? ê·¼ë¬´?œê°„ ?€???¤ë¥˜:', error)
+    return false
+  }
+}
+
+// ëª¨ë“  ë¶€?œì˜ ê·¼ë¬´?œê°„ ì¡°íšŒ (êµì§?ìš©)
+export async function getAllWorkHours(): Promise<WorkHours[]> {
+  try {
+    const { data, error } = await supabase
+      .from('work_hours')
+      .select('*')
+      .order('department')
+
+    if (error) {
+      if (error.code === '42P01') {
+        // ?Œì´ë¸”ì´ ?†ëŠ” ê²½ìš° ë¡œì»¬ ?¤í† ë¦¬ì??ì„œ ì¡°íšŒ
+        console.warn('work_hours ?Œì´ë¸”ì´ ì¡´ì¬?˜ì? ?ŠìŠµ?ˆë‹¤. ë¡œì»¬ ?¤í† ë¦¬ì?ë¥??¬ìš©?©ë‹ˆ??')
+        return getAllWorkHoursFromLocalStorage()
+      }
+      throw error
+    }
+    return data || []
+  } catch (error) {
+    console.error('?„ì²´ ê·¼ë¬´?œê°„ ì¡°íšŒ ?¤ë¥˜, ë¡œì»¬ ?¤í† ë¦¬ì? ?¬ìš©:', error)
+    return getAllWorkHoursFromLocalStorage()
+  }
+}
+
+// ë¡œì»¬ ?¤í† ë¦¬ì??ì„œ ëª¨ë“  ê·¼ë¬´?œê°„ ì¡°íšŒ
+function getAllWorkHoursFromLocalStorage(): WorkHours[] {
+  try {
+    const workHoursList: WorkHours[] = []
+    
+    // ë¡œì»¬ ?¤í† ë¦¬ì??ì„œ work_hours_ ?‘ë‘?¬ë¡œ ?œì‘?˜ëŠ” ëª¨ë“  ??ì°¾ê¸°
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('work_hours_')) {
+        const value = localStorage.getItem(key)
+        if (value) {
+          try {
+            const workHours = JSON.parse(value)
+            workHoursList.push(workHours)
+          } catch (parseError) {
+            console.error(`ë¡œì»¬ ?¤í† ë¦¬ì? ?Œì‹± ?¤ë¥˜ (${key}):`, parseError)
+          }
+        }
+      }
+    }
+    
+    // ë¶€?œëª…?¼ë¡œ ?•ë ¬
+    workHoursList.sort((a, b) => a.department.localeCompare(b.department))
+    
+    return workHoursList
+  } catch (error) {
+    console.error('ë¡œì»¬ ?¤í† ë¦¬ì? ?„ì²´ ê·¼ë¬´?œê°„ ì¡°íšŒ ?¤ë¥˜:', error)
+    return []
+  }
+}
+
+// ì¶œê·¼/?´ê·¼ ?œê°„ ê²€ì¦??¨ìˆ˜ (?Œì´ë¸”ì´ ?†ì–´??ê¸°ë³¸ ?™ì‘)
+export function checkAttendanceStatus(
+  scanTime: Date,
+  workHours: WorkHours | null,
+  scanType: 'checkin' | 'checkout'
+): {
+  status: AttendanceStatus
+  isLate: boolean
+  isEarlyLeave: boolean
+} {
+  // ê·¼ë¬´?œê°„???¤ì •?˜ì? ?Šì? ê²½ìš° ê¸°ë³¸ ì²˜ë¦¬ (ê¸°ì¡´ ë°©ì‹ ? ì?)
+  if (!workHours) {
+    return {
+      status: scanType,
+      isLate: false,
+      isEarlyLeave: false
+    }
+  }
+
+  const scanTimeStr = formatLocalTime(scanTime) // HH:MM:SS ?•ì‹
+  const [scanHour, scanMinute] = scanTimeStr.split(':').map(Number)
+  const scanMinutes = scanHour * 60 + scanMinute
+
+  const [startHour, startMinute] = workHours.start_time.split(':').map(Number)
+  const startMinutes = startHour * 60 + startMinute
+
+  const [endHour, endMinute] = workHours.end_time.split(':').map(Number)
+  const endMinutes = endHour * 60 + endMinute
+
+  if (scanType === 'checkin') {
+    if (scanMinutes > startMinutes) {
+      return {
+        status: 'checkin', // ê¸°ë³¸?ìœ¼ë¡œëŠ” ì¶œê·¼?¼ë¡œ ì²˜ë¦¬ (?¸í™˜??
+        isLate: true,
+        isEarlyLeave: false
+      }
+    } else {
+      return {
+        status: 'checkin',
+        isLate: false,
+        isEarlyLeave: false
+      }
+    }
+  } else if (scanType === 'checkout') {
+    if (scanMinutes < endMinutes) {
+      return {
+        status: 'checkout', // ê¸°ë³¸?ìœ¼ë¡œëŠ” ?´ê·¼?¼ë¡œ ì²˜ë¦¬ (?¸í™˜??
+        isLate: false,
+        isEarlyLeave: true
+      }
+    } else {
+      return {
+        status: 'checkout',
+        isLate: false,
+        isEarlyLeave: false
+      }
+    }
+  }
+
+  return {
+    status: scanType,
+    isLate: false,
+    isEarlyLeave: false
+  }
+}
+
+// ì¡°ê¸°?´ê·¼ ?¬ìœ  ?€??export async function saveEarlyLeaveReason(
+  attendanceLogId: string,
+  reason: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('early_leave_reasons')
+      .insert({
+        attendance_log_id: attendanceLogId,
+        reason: reason
+      })
+
+    if (error) {
+      if (error.code === '42P01') {
+        // ?Œì´ë¸”ì´ ?†ëŠ” ê²½ìš° ê²½ê³  ë¡œê·¸ë§?ì¶œë ¥?˜ê³  ?±ê³µ?¼ë¡œ ì²˜ë¦¬
+        console.warn('early_leave_reasons ?Œì´ë¸”ì´ ì¡´ì¬?˜ì? ?ŠìŠµ?ˆë‹¤. ë§ˆì´ê·¸ë ˆ?´ì…˜???¤í–‰?´ì£¼?¸ìš”.')
+        return true
+      }
+      throw error
+    }
+    return true
+  } catch (error) {
+    console.error('ì¡°ê¸°?´ê·¼ ?¬ìœ  ?€???¤ë¥˜:', error)
+    return false
+  }
+}
+
+// ì¶œì„ ê¸°ë¡ ?€????ê·¼ë¬´?œê°„ ê²€ì¦??¬í•¨
+export async function saveAttendanceRecordWithValidation(
+  userId: string,
+  scanType: 'checkin' | 'checkout',
+  location?: string,
+  earlyLeaveReason?: string
+): Promise<{
+  success: boolean
+  attendanceLogId?: string
+  status?: AttendanceStatus
+  isLate?: boolean
+  isEarlyLeave?: boolean
+  error?: string
+}> {
+  try {
+    // ?¬ìš©???•ë³´ ì¡°íšŒ
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('department')
+      .eq('id', userId)
+      .single()
+
+    if (userError) throw userError
+
+    // ?´ë‹¹ ë¶€?œì˜ ê·¼ë¬´?œê°„ ì¡°íšŒ
+    const workHours = await getWorkHours(userData.department)
+    
+    // ?„ì¬ ?œê°„
+    const scanTime = getLocalTime()
+    
+    // ì¶œì„ ?íƒœ ê²€ì¦?    const { status, isLate, isEarlyLeave } = checkAttendanceStatus(scanTime, workHours, scanType)
+
+    // ì¶œì„ ê¸°ë¡ ?€??(??ì»¬ëŸ¼???†ëŠ” ê²½ìš° ê¸°ë³¸ ë°©ì‹?¼ë¡œ ?€??
+    let attendanceData: any
+    let attendanceError: any
+    
+    try {
+      const insertData: any = {
+        user_id: userId,
+        scan_time: scanTime.toISOString(),
+        scan_type: status,
+        location: location
+      }
+      
+      // ??ì»¬ëŸ¼?¤ì´ ì¡´ì¬?˜ëŠ”ì§€ ?•ì¸?˜ê³  ì¶”ê?
+      try {
+        insertData.is_late = isLate
+        insertData.is_early_leave = isEarlyLeave
+      } catch (e) {
+        // ??ì»¬ëŸ¼???†ì–´??ê³„ì† ì§„í–‰
+      }
+      
+      const result = await supabase
+        .from('user_attendance_logs')
+        .insert(insertData)
+        .select('id')
+        .single()
+        
+      attendanceData = result.data
+      attendanceError = result.error
+    } catch (error) {
+      // ??ì»¬ëŸ¼ ?Œë¬¸???¤íŒ¨??ê²½ìš° ê¸°ë³¸ ë°©ì‹?¼ë¡œ ?¬ì‹œ??      console.warn('??ì»¬ëŸ¼?¼ë¡œ ?€???¤íŒ¨, ê¸°ë³¸ ë°©ì‹?¼ë¡œ ?¬ì‹œ??', error)
+      const result = await supabase
+        .from('user_attendance_logs')
+        .insert({
+          user_id: userId,
+          scan_time: scanTime.toISOString(),
+          scan_type: status,
+          location: location
+        })
+        .select('id')
+        .single()
+        
+      attendanceData = result.data
+      attendanceError = result.error
+    }
+
+    if (attendanceError) throw attendanceError
+
+    // ì¡°ê¸°?´ê·¼ ?¬ìœ ê°€ ?ˆëŠ” ê²½ìš° ?€??    if (isEarlyLeave && earlyLeaveReason && attendanceData.id) {
+      await saveEarlyLeaveReason(attendanceData.id, earlyLeaveReason)
+    }
+
+    return {
+      success: true,
+      attendanceLogId: attendanceData.id,
+      status,
+      isLate,
+      isEarlyLeave
+    }
+  } catch (error) {
+    console.error('ì¶œì„ ê¸°ë¡ ?€???¤ë¥˜:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '?????†ëŠ” ?¤ë¥˜ê°€ ë°œìƒ?ˆìŠµ?ˆë‹¤.'
+    }
+  }
+} 
