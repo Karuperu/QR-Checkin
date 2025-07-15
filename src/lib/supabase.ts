@@ -89,7 +89,6 @@ export interface User {
   name: string
   department: string
   role: UserRole
-  qr_code?: string  // 개인 QR 코드는 옵셔널로 변경
   is_active: boolean
 }
 
@@ -166,7 +165,6 @@ export async function loginUser(userId: string, password: string): Promise<User 
       name: user.name,
       department: user.department,
       role: user.role as UserRole,
-      qr_code: user.qr_code || undefined,  // 빈 문자열이면 undefined로 설정
       is_active: user.is_active
     }
 
@@ -190,7 +188,7 @@ export async function registerUser(
     // 비밀번호 해시
     const passwordHash = await bcrypt.hash(password, 10)
     
-    // 사용자 정보 저장 (개인 QR 코드 제거)
+    // 사용자 정보 저장 (qr_code 제거)
     const { data: user, error } = await supabase
       .from('users')
       .insert({
@@ -199,7 +197,6 @@ export async function registerUser(
         department,
         role,
         password_hash: passwordHash,
-        qr_code: '', // 빈 문자열로 설정
         is_active: true
       })
       .select()
@@ -217,7 +214,6 @@ export async function registerUser(
       name: user.name,
       department: user.department,
       role: user.role as UserRole,
-      qr_code: user.qr_code || undefined,  // 빈 문자열이면 undefined로 설정
       is_active: user.is_active
     }
 
@@ -274,7 +270,6 @@ export async function refreshUserSession(): Promise<User | null> {
       name: user.name,
       department: user.department,
       role: user.role as UserRole,
-      qr_code: user.qr_code || undefined,  // 빈 문자열이면 undefined로 설정
       is_active: user.is_active
     }
 
@@ -485,7 +480,6 @@ export type Database = {
           department: string
           role: string
           password_hash: string
-          qr_code: string
           is_active: boolean | null
           created_at: string | null
           updated_at: string | null
@@ -497,7 +491,6 @@ export type Database = {
           department: string
           role: string
           password_hash: string
-          qr_code: string
           is_active?: boolean | null
           created_at?: string | null
           updated_at?: string | null
@@ -509,7 +502,6 @@ export type Database = {
           department?: string
           role?: string
           password_hash?: string
-          qr_code?: string
           is_active?: boolean | null
           created_at?: string | null
           updated_at?: string | null
@@ -1441,7 +1433,9 @@ export async function getWeeklyAttendanceStats(): Promise<{
 
       // 수정된 기록이면 수정된 시간을 사용, 아니면 원래 시간 사용
       const effectiveTime = record.is_edited && record.edited_at ? record.edited_at : record.scan_time
-      const date = new Date(effectiveTime).toISOString().split('T')[0]
+      // KST(한국시간) 기준 날짜 추출
+      const kstDateObj = new Date(new Date(effectiveTime).getTime() + 9 * 60 * 60 * 1000)
+      const date = kstDateObj.toISOString().split('T')[0]
       const studentKey = `${date}_${student.user_id}`
 
       if (!groupedData[studentKey]) {

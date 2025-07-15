@@ -27,6 +27,17 @@ import {
   type AttendanceStatus,
   getAttendanceStatusByDate
 } from '../lib/supabase'
+import { Line } from 'react-chartjs-2'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js'
 
 interface TodayAttendance {
   checkin: (User & { checkinTime?: string })[]
@@ -74,12 +85,23 @@ export default function StatsPage() {
   const [dailyStats, setDailyStats] = useState<DailyStats>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string>('')
-  const [selectedTab, setSelectedTab] = useState<'today' | 'weekly' | 'daily'>('today')
+  const [selectedTab, setSelectedTab] = useState<'today' | 'weekly' | 'daily' >('today')
   const [selectedDepartment, setSelectedDepartment] = useState('all')
   // const [editingStudent, setEditingStudent] = useState<{studentId: string, currentStatus: AttendanceStatus} | null>(null)
   const [showDailyDetail, setShowDailyDetail] = useState(false)
   const [selectedDailyDate, setSelectedDailyDate] = useState<string | null>(null)
   const [selectedDailyDetail, setSelectedDailyDetail] = useState<TodayAttendance | null>(null)
+
+  // 테스트용 더미 데이터 (weeklyStats가 비어있을 때만 사용)
+  const dummyWeeklyStats: WeeklyStats[] = [
+    { date: '2025-07-09', status: 'checkin', checkinTime: '2025-07-09T09:00:00', checkoutTime: '2025-07-09T18:00:00', student: { name: '홍길동', user_id: '20230001', department: '컴퓨터공학과' } },
+    { date: '2025-07-10', status: 'checkin', checkinTime: '2025-07-10T09:10:00', checkoutTime: '2025-07-10T18:05:00', student: { name: '김철수', user_id: '20230002', department: '전자공학과' } },
+    { date: '2025-07-11', status: 'checkin', checkinTime: '2025-07-11T09:05:00', checkoutTime: '2025-07-11T18:10:00', student: { name: '이영희', user_id: '20230003', department: '기계공학과' } },
+    { date: '2025-07-12', status: 'checkin', checkinTime: '2025-07-12T09:00:00', checkoutTime: '2025-07-12T18:00:00', student: { name: '박민수', user_id: '20230004', department: '컴퓨터공학과' } },
+    { date: '2025-07-13', status: 'checkin', checkinTime: '2025-07-13T09:20:00', checkoutTime: '2025-07-13T18:15:00', student: { name: '최지훈', user_id: '20230005', department: '전자공학과' } },
+    { date: '2025-07-14', status: 'checkin', checkinTime: '2025-07-14T09:00:00', checkoutTime: '2025-07-14T18:00:00', student: { name: '홍길동', user_id: '20230001', department: '컴퓨터공학과' } },
+    { date: '2025-07-15', status: 'checkin', checkinTime: '2025-07-15T09:00:00', checkoutTime: '2025-07-15T18:00:00', student: { name: '김철수', user_id: '20230002', department: '전자공학과' } },
+  ]
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -90,6 +112,12 @@ export default function StatsPage() {
     setCurrentUser(user)
     loadAllStats()
   }, [navigate])
+
+  useEffect(() => {
+    if (todayAttendance) {
+      console.log('총 인원 todayAttendance.totalStudents:', todayAttendance.totalStudents);
+    }
+  }, [todayAttendance]);
 
   const loadAllStats = async () => {
     setIsLoading(true)
@@ -304,9 +332,6 @@ export default function StatsPage() {
             {student.checkinTime && (
               <span className="text-green-600">출근시간: {formatTime(student.checkinTime)}</span>
             )}
-            {student.checkoutTime && (
-              <span className="text-purple-600">조기퇴근: {formatTime(student.checkoutTime)}</span>
-            )}
           </div>
         )}
         
@@ -333,6 +358,90 @@ export default function StatsPage() {
     const detail = await getAttendanceStatusByDate(date)
     setSelectedDailyDetail(detail)
   }
+
+  // 주간 통계 차트 데이터 생성 함수
+  const getWeeklyChartData = () => {
+    const today = new Date()
+    const days = []
+    const labels = []
+
+    // 오늘 기준 1주일 전부터 오늘까지
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today)
+      date.setDate(today.getDate() - i)
+      const dateStr = date.toISOString().split('T')[0]
+      days.push(dateStr)
+      labels.push(formatLocalDate(dateStr))
+    }
+
+    // 각 날짜별 출근+퇴근 인원 합계 계산
+    const data = days.map(date => {
+      const dayStats = (weeklyStats.length > 0 ? weeklyStats : dummyWeeklyStats)
+        .filter(stat => stat.date === date)
+      const uniqueStudents = new Set(dayStats.map(stat => stat.student.user_id))
+      return uniqueStudents.size
+    })
+
+    // **총 인원 동적 계산**
+    const maxStudents =
+      todayAttendance?.totalStudents && todayAttendance.totalStudents > 0
+        ? todayAttendance.totalStudents
+        : Math.max(...data, 1)
+
+    return {
+      labels,
+      data,
+      maxStudents
+    }
+  }
+
+  // 차트 옵션에서 y축 max를 maxStudents로 설정
+  const getChartOptions = (maxStudents: number) => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        mode: 'index' as const,
+        intersect: false,
+        callbacks: {
+          label: function (context: any) {
+            return `출근+퇴근 인원: ${context.parsed.y}명`
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        display: true,
+        title: { display: true, text: '날짜' }
+      },
+      y: {
+        display: true,
+        title: { display: true, text: '인원수' },
+        beginAtZero: true,
+        max: maxStudents,
+        suggestedMax: maxStudents,
+        grace: 0,
+        ticks: {
+          stepSize: 1,
+          precision: 0,
+          maxTicksLimit: maxStudents + 1,
+          callback: function(tickValue: string | number) {
+            if (typeof tickValue === 'number' && tickValue >= 0 && tickValue <= maxStudents) return tickValue;
+            return '';
+          }
+        }
+      }
+    },
+    interaction: {
+      mode: 'nearest' as const,
+      axis: 'x',
+      intersect: false
+    }
+  })
+
+  ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
 
   if (isLoading) {
     return (
@@ -633,68 +742,110 @@ export default function StatsPage() {
 
             {selectedTab === 'weekly' && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">지난 7일간 출퇴근 기록</h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">날짜</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">학생</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">학번</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">학과</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">상태</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">출근시간</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">퇴근시간</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {weeklyStats
-                        .filter(stat => selectedDepartment === 'all' || stat.student.department === selectedDepartment)
-                        .map((stat, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {formatDate(stat.date)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {stat.student.name}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {stat.student.user_id}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {stat.student.department}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            {stat.status ? (
-                              <span className={`px-2 py-1 text-xs rounded-full ${getAttendanceStatusColor(stat.status)}`}>
-                                {getAttendanceStatusLabel(stat.status)}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            <div className="flex items-center">
-                              <Clock className="w-4 h-4 text-green-500 mr-2" />
-                              {formatTime(stat.checkinTime)}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            <div className="flex items-center">
-                              <Clock className="w-4 h-4 text-red-500 mr-2" />
-                              {formatTime(stat.checkoutTime)}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  
-                  {weeklyStats.filter(stat => selectedDepartment === 'all' || stat.student.department === selectedDepartment).length === 0 && (
-                    <div className="text-center py-8">
-                      <p className="text-gray-500">해당 조건의 출퇴근 기록이 없습니다.</p>
+                {/* 주간 출근+퇴근 인원 차트 추가 */}
+                <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">주간 출근+퇴근 인원 통계</h3>
+                    <div className="text-sm text-gray-500">
+                      {formatDateRange(
+                        new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        new Date().toISOString().split('T')[0]
+                      )}
                     </div>
-                  )}
+                  </div>
+                  <div className="h-80">
+                    {(() => {
+                      const chartData = getWeeklyChartData()
+                      return (
+                        <Line
+                          data={{
+                            labels: chartData.labels,
+                            datasets: [
+                              {
+                                label: '출근+퇴근 인원',
+                                data: chartData.data,
+                                borderColor: 'rgb(234, 179, 8)',
+                                backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                                borderWidth: 3,
+                                fill: true,
+                                tension: 0.4,
+                                pointBackgroundColor: 'rgb(234, 179, 8)',
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2,
+                                pointRadius: 6,
+                                pointHoverRadius: 8
+                              }
+                            ]
+                          }}
+                          options={{
+                            ...getChartOptions(chartData.maxStudents),
+                            interaction: {
+                              mode: 'nearest' as const,
+                              axis: 'x',
+                              intersect: false
+                            }
+                          }}
+                        />
+                      )
+                    })()}
+                  </div>
+                  <div className="mt-4 text-center text-sm text-gray-600">
+                    총 인원: {getWeeklyChartData().maxStudents}명 기준
+                  </div>
+                </div>
+                {/* 표 */}
+                <div className="bg-white rounded shadow p-4">
+                  <h2 className="text-lg font-bold mb-2">근무자별 근무 내역</h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border text-sm">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border px-2 py-1">이름</th>
+                          <th className="border px-2 py-1">부서</th>
+                          <th className="border px-2 py-1">직급</th>
+                          <th className="border px-2 py-1">근무일수</th>
+                          <th className="border px-2 py-1">총 근무시간</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* 예시 데이터: weeklyStats를 그룹화하여 이름별로 근무일수/근무시간 계산 */}
+                        {Object.entries(
+                          (weeklyStats.length > 0 ? weeklyStats : dummyWeeklyStats).reduce((acc: Record<string, { name: string, department: string, position: string, days: number, totalTime: number }>, stat: WeeklyStats) => {
+                            const key = stat.student.name + stat.student.user_id
+                            if (!acc[key]) {
+                              acc[key] = {
+                                name: stat.student.name,
+                                department: stat.student.department,
+                                position: '직원', // 실제 데이터에 맞게 수정 필요
+                                days: 0,
+                                totalTime: 0,
+                              }
+                            }
+                            acc[key].days += 1
+                            // 근무시간 계산 예시(실제 데이터에 맞게 수정 필요)
+                            if (stat.checkinTime && stat.checkoutTime) {
+                              const inTime = new Date(stat.checkinTime)
+                              const outTime = new Date(stat.checkoutTime)
+                              const diff = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
+                              acc[key].totalTime += diff > 0 ? diff : 0
+                            }
+                            return acc
+                          }, {} as Record<string, { name: string, department: string, position: string, days: number, totalTime: number }>))
+                          .map(([key, row]) => {
+                            const r = row as { name: string, department: string, position: string, days: number, totalTime: number }
+                            return (
+                              <tr key={key}>
+                                <td className="border px-2 py-1">{r.name}</td>
+                                <td className="border px-2 py-1">{r.department}</td>
+                                <td className="border px-2 py-1">{r.position}</td>
+                                <td className="border px-2 py-1">{r.days}</td>
+                                <td className="border px-2 py-1">{r.totalTime.toFixed(2)}시간</td>
+                              </tr>
+                            )
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}

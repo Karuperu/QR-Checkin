@@ -18,6 +18,9 @@ import {
   type VacationRequest
 } from '../lib/supabase'
 import { supabase } from '../lib/supabase'
+import { Line } from 'react-chartjs-2'
+import { Chart, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js'
+Chart.register(LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend)
 
 interface AttendanceRecord {
   id: string
@@ -1423,6 +1426,42 @@ export default function AttendancePage() {
     )
   }
 
+  // 한국시간 기준 오늘 날짜를 반환하는 함수
+  function getKoreaTodayDate() {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const koreaTime = new Date(utc + (9 * 60 * 60 * 1000));
+    return new Date(koreaTime.getFullYear(), koreaTime.getMonth(), koreaTime.getDate());
+  }
+
+  // 주간 통계 x축 라벨 동적 생성 함수
+  function getWeeklyLabels() {
+    const endDate = getKoreaTodayDate();
+    const labels = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(endDate);
+      d.setDate(endDate.getDate() - i);
+      labels.push(`${d.getDate()}일`);
+    }
+    return labels;
+  }
+
+  // 주간 통계 차트 데이터(출근+퇴근 인원 합) 동적 생성 함수
+  function getWeeklyAttendanceCounts() {
+    const labels = getWeeklyLabels();
+    // 날짜별(YYYY-MM-DD)로 출근/퇴근 인원 합산
+    const dateMap: { [key: string]: { checkin: number; checkout: number } } = {};
+    weeklyStats.forEach(stat => {
+      const date = new Date(stat.date);
+      const label = `${date.getDate()}일`;
+      if (!dateMap[label]) dateMap[label] = { checkin: 0, checkout: 0 };
+      if (stat.status === 'checkin' || stat.status === 'late') dateMap[label].checkin += 1;
+      if (stat.status === 'checkout') dateMap[label].checkout += 1;
+    });
+    // 라벨 순서대로 출근+퇴근 합계 배열 생성
+    return labels.map(label => (dateMap[label]?.checkin || 0) + (dateMap[label]?.checkout || 0));
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-7xl">
@@ -2301,6 +2340,72 @@ export default function AttendancePage() {
                 {/* 주간 통계 */}
                 {selectedStatsTab === 'weekly' && (
                   <div>
+                    {/* 주간 근무시간 차트 */}
+                    <div className="w-full p-0 m-0 mb-8">
+                      <div className="flex items-center gap-4 mb-2">
+                        <span className="text-sm text-gray-700">[총 {todayAttendance?.totalStudents ?? 0}명]</span>
+                        {/* 날짜 범위 동적 계산 - 한국시간 기준 오늘 날짜로 고정 */}
+                        {(() => {
+                          const endDate = getKoreaTodayDate();
+                          const startDate = new Date(endDate);
+                          startDate.setDate(endDate.getDate() - 6);
+                          return (
+                            <span className="text-base text-gray-900 font-semibold">
+                              {formatLocalDate(startDate)} ~ {formatLocalDate(endDate)}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="w-full p-0 m-0">
+                        <Line
+                          data={{
+                            labels: getWeeklyLabels(),
+                            datasets: [
+                              {
+                                label: '출근+퇴근 인원',
+                                data: getWeeklyAttendanceCounts(),
+                                borderColor: '#FFD600',
+                                backgroundColor: '#FFD600',
+                                pointBackgroundColor: '#FFD600',
+                                pointBorderColor: '#FFD600',
+                                tension: 0,
+                                fill: false,
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                borderWidth: 2,
+                              },
+                            ],
+                          }}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                              legend: { display: false },
+                              tooltip: {
+                                callbacks: {
+                                  label: (ctx) => `근무시간: ${ctx.parsed.y}시간`
+                                }
+                              }
+                            },
+                            scales: {
+                              x: {
+                                grid: { display: true, color: '#eee' },
+                                title: { display: false },
+                                ticks: { font: { size: 14, weight: 'bold' }, color: '#222' }
+                              },
+                              y: {
+                                min: 0,
+                                max: todayAttendance?.totalStudents ?? 10, // 총 인원수로 동적 설정
+                                ticks: { stepSize: 1, font: { size: 14, weight: 'bold' }, color: '#222' },
+                                grid: { color: '#eee' },
+                                title: { display: false }
+                              }
+                            }
+                          }}
+                          height={260}
+                        />
+                      </div>
+                    </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">지난 7일간 출퇴근 기록</h3>
                     <div className="overflow-x-auto">
                       <table className="min-w-full divide-y divide-gray-200">

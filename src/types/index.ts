@@ -6,7 +6,6 @@ export interface User {
   name: string
   department: string
   role: UserRole
-  qr_code?: string  // 개인 QR 코드는 옵셔널로 변경
   is_active: boolean
 }
 
@@ -24,7 +23,6 @@ export interface QRData {
   name: string
   department: string
   role: UserRole
-  qr_code: string
   timestamp: string
   type: 'user_info'
 }
