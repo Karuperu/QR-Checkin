@@ -13,23 +13,29 @@ import {
 export default function WorkTimeSettingsPage() {
   const navigate = useNavigate()
   const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [settings, setSettings] = useState<Omit<WorkTimeSettings, 'operating_start_hour' | 'operating_end_hour'>>( (() => {
-    const s = loadWorkTimeSettings()
-    // 운영시간 필드 제거
-    const { checkin_deadline_hour, checkout_start_hour } = s
-    return { checkin_deadline_hour, checkout_start_hour }
-  })())
+  // 초기값을 저장된 설정에서 가져오기
+  const initialSettings = loadWorkTimeSettings()
+  const [settings, setSettings] = useState<Omit<WorkTimeSettings, 'operating_start_hour' | 'operating_end_hour'>>({
+    checkin_deadline_hour: initialSettings.checkin_deadline_hour,
+    checkout_start_hour: initialSettings.checkout_start_hour
+  })
   const [errors, setErrors] = useState<string[]>([])
   const [successMessage, setSuccessMessage] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    const user = getCurrentUser()
-    if (!user || user.role !== 'faculty') {
-      navigate('/') // 교직원이 아니면 메인 페이지로 리다이렉트
-      return
+    const initializeUser = async () => {
+      const user = getCurrentUser()
+      if (!user || user.role !== 'faculty') {
+        navigate('/') // 교직원이 아니면 메인 페이지로 리다이렉트
+        return
+      }
+      setCurrentUser(user)
+      
+      // 설정은 이미 초기값으로 로드됨
     }
-    setCurrentUser(user)
+    
+    initializeUser()
   }, [navigate])
 
   const handleTimeChange = (field: 'checkin_deadline_hour' | 'checkout_start_hour', value: string) => {
@@ -65,12 +71,17 @@ export default function WorkTimeSettingsPage() {
     }
 
     try {
-      saveWorkTimeSettings({
+      const success = saveWorkTimeSettings({
         ...settings,
         operating_start_hour: 0,
         operating_end_hour: 23
       })
-      setSuccessMessage('출퇴근 시간 설정이 저장되었습니다.')
+      
+      if (success) {
+        setSuccessMessage('출퇴근 시간 설정이 저장되었습니다.')
+      } else {
+        setErrors(['설정 저장 중 오류가 발생했습니다.'])
+      }
       
       // 3초 후 성공 메시지 제거
       setTimeout(() => {

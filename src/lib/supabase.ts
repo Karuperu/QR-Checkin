@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
-import bcrypt from 'bcryptjs'
+import CryptoJS from 'crypto-js'
+
+// MD5 해시 함수
+function md5(text: string): string {
+  return CryptoJS.MD5(text).toString()
+}
 
 // 환경변수를 더 안전하게 로드
 const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://uefmrjuvkwrvfrfifbqv.supabase.co'
@@ -152,9 +157,8 @@ export async function loginUser(userId: string, password: string): Promise<User 
       return null
     }
 
-    // 비밀번호 검증
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash)
-    if (!isPasswordValid) {
+    // 비밀번호 검증 (평문 비교)
+    if (password !== user.password_hash) {
       return null
     }
 
@@ -185,8 +189,8 @@ export async function registerUser(
   password: string
 ): Promise<User | null> {
   try {
-    // 비밀번호 해시
-    const passwordHash = await bcrypt.hash(password, 10)
+    // 비밀번호 평문 저장
+    const passwordHash = password
     
     // 사용자 정보 저장 (qr_code 제거)
     const { data: user, error } = await supabase
@@ -673,7 +677,8 @@ export async function saveAttendanceRecord(
   scanType: AttendanceStatus,
   location?: string,
   latitude?: number,
-  longitude?: number
+  longitude?: number,
+  absence_reason?: string
 ): Promise<boolean> {
   try {
     const timestamp = toLocalISOString() // 로컬 시간 기준 현재 시간
@@ -683,6 +688,7 @@ export async function saveAttendanceRecord(
       location,
       latitude,
       longitude,
+      absence_reason,
       timestamp_KST: timestamp,
       timestamp_local: new Date().toLocaleString('ko-KR')
     })
@@ -695,6 +701,7 @@ export async function saveAttendanceRecord(
     }
     if (latitude !== undefined) insertData.latitude = latitude
     if (longitude !== undefined) insertData.longitude = longitude
+    if (absence_reason !== undefined) insertData.absence_reason = absence_reason
 
     console.log('삽입할 데이터:', insertData)
 
@@ -1368,6 +1375,108 @@ export async function getAttendanceStatusByDate(date: string): Promise<{
       absentCount: 0,
       vacationCount: 0
     }
+  }
+}
+
+// 학생 개인의 30일간 출퇴근 기록 조회
+export async function getStudent30DaysAttendanceRecords(userId: string): Promise<{
+  date: string
+  checkinTime: string | null
+  checkoutTime: string | null
+  status: AttendanceStatus | null
+  absence_reason: string | null
+  is_edited: boolean
+}[]> {
+  try {
+    // 한국 시간 기준으로 지난 30일간의 날짜 배열 생성
+    const now = new Date()
+    const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)) // UTC + 9시간
+    const dates: string[] = []
+    
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(koreaTime)
+      date.setDate(date.getDate() - i)
+      dates.push(date.toISOString().split('T')[0])
+    }
+
+    // 30일간의 모든 출퇴근 기록 조회 (한국 시간 기준)
+    const startDate = new Date(koreaTime)
+    startDate.setDate(startDate.getDate() - 29)
+    startDate.setHours(0, 0, 0, 0)
+    
+    const endDate = new Date(koreaTime)
+    endDate.setHours(23, 59, 59, 999)
+
+    const { data: records, error } = await supabase
+      .from('attendance_logs')
+      .select('scan_time, scan_type, absence_reason, is_edited')
+      .eq('user_id', userId)
+      .gte('scan_time', startDate.toISOString())
+      .lte('scan_time', endDate.toISOString())
+      .order('scan_time')
+
+    if (error) throw error
+
+    // 날짜별로 기록 정리 (한국 시간 기준)
+    const result = dates.map(date => {
+      const dayRecords = records?.filter(record => {
+        // 기록 시간을 한국 시간으로 변환
+        const recordTime = new Date(record.scan_time)
+        const recordKoreaTime = new Date(recordTime.getTime() + (9 * 60 * 60 * 1000))
+        const recordDate = recordKoreaTime.toISOString().split('T')[0]
+        return recordDate === date
+      }) || []
+
+      // 각 날짜의 첫 번째와 마지막 기록을 찾아서 출근/퇴근 시간 결정
+      let checkinTime: string | null = null
+      let checkoutTime: string | null = null
+      let status: AttendanceStatus | null = null
+      let absence_reason: string | null = null
+      let is_edited = false
+
+      if (dayRecords.length > 0) {
+        // 출근 기록 찾기 (checkin, late)
+        const checkinRecord = dayRecords.find(r => r.scan_type === 'checkin' || r.scan_type === 'late')
+        if (checkinRecord) {
+          checkinTime = checkinRecord.scan_time
+          status = checkinRecord.scan_type
+          is_edited = checkinRecord.is_edited
+        }
+
+        // 퇴근 기록 찾기 (checkout, early_leave)
+        const checkoutRecord = dayRecords.find(r => r.scan_type === 'checkout' || r.scan_type === 'early_leave')
+        if (checkoutRecord) {
+          checkoutTime = checkoutRecord.scan_time
+          if (status === 'checkin') {
+            status = 'checkout' // 정상 출퇴근 완료
+          } else if (status === 'late') {
+            status = checkoutRecord.scan_type === 'early_leave' ? 'early_leave' : 'late'
+          }
+        }
+
+        // 결석 또는 휴가 기록
+        const absentRecord = dayRecords.find(r => r.scan_type === 'absent' || r.scan_type === 'vacation')
+        if (absentRecord) {
+          status = absentRecord.scan_type
+          absence_reason = absentRecord.absence_reason
+          is_edited = absentRecord.is_edited
+        }
+      }
+
+      return {
+        date,
+        checkinTime,
+        checkoutTime,
+        status,
+        absence_reason,
+        is_edited
+      }
+    })
+
+    return result // 최신 날짜부터 표시 (이미 최신순으로 생성됨)
+  } catch (error) {
+    console.error('30일 출퇴근 기록 조회 오류:', error)
+    return []
   }
 }
 
@@ -2119,12 +2228,18 @@ const DEFAULT_WORK_TIME_SETTINGS: WorkTimeSettings = {
   operating_end_hour: 22        // 오후 10시까지 운영
 }
 
-// 출퇴근 시간 설정 저장
-export function saveWorkTimeSettings(settings: WorkTimeSettings): void {
-  localStorage.setItem('workTimeSettings', JSON.stringify(settings))
+// 출퇴근 시간 설정 저장 (localStorage 방식)
+export function saveWorkTimeSettings(settings: WorkTimeSettings): boolean {
+  try {
+    localStorage.setItem('workTimeSettings', JSON.stringify(settings))
+    return true
+  } catch (error) {
+    console.error('출퇴근 시간 설정 저장 오류:', error)
+    return false
+  }
 }
 
-// 출퇴근 시간 설정 로드
+// 출퇴근 시간 설정 로드 (localStorage 방식)
 export function loadWorkTimeSettings(): WorkTimeSettings {
   try {
     const saved = localStorage.getItem('workTimeSettings')
@@ -2134,6 +2249,7 @@ export function loadWorkTimeSettings(): WorkTimeSettings {
   } catch (error) {
     console.error('출퇴근 시간 설정 로드 오류:', error)
   }
+  
   return DEFAULT_WORK_TIME_SETTINGS
 }
 
@@ -2208,10 +2324,10 @@ export function validateWorkTimeSettings(settings: WorkTimeSettings): { isValid:
 } 
 
 // 장소 목록 조회
-export async function getLocations(): Promise<{id: string, name: string}[]> {
+export async function getLocations(): Promise<{id: string, name: string, latitude?: number, longitude?: number}[]> {
   const { data, error } = await supabase
     .from('locations')
-    .select('id, name')
+    .select('id, name, latitude, longitude')
     .order('created_at', { ascending: true })
   if (error) {
     console.error('장소 목록 조회 오류:', error)
@@ -2262,10 +2378,16 @@ export async function getLocationNameByCoords(latitude: number, longitude: numbe
 }
 
 // 장소 추가
-export async function addLocation(name: string): Promise<boolean> {
+export async function addLocation(name: string, latitude?: number, longitude?: number): Promise<boolean> {
+  const insertData: any = { name }
+  if (latitude !== undefined && longitude !== undefined) {
+    insertData.latitude = latitude
+    insertData.longitude = longitude
+  }
+  
   const { error } = await supabase
     .from('locations')
-    .insert({ name })
+    .insert(insertData)
   if (error) {
     console.error('장소 추가 오류:', error)
     return false

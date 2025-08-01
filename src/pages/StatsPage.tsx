@@ -564,64 +564,164 @@ export default function StatsPage() {
           <div className="p-6">
             {selectedTab === 'today' && todayAttendance && (
               <div>
-                {/* 요약 카드 */}
-                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <Users className="w-6 h-6 text-blue-600" />
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-blue-600">전체 학생</p>
-                        <p className="text-xl font-bold text-blue-900">{todayAttendance.totalStudents}명</p>
-                      </div>
-                    </div>
-                  </div>
+                {/* 전체 출석률 */}
+                <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-6 text-center">전체 출석률</h3>
                   
-                  <div className="bg-green-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <UserCheck className="w-6 h-6 text-green-600" />
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-green-600">출근</p>
-                        <p className="text-xl font-bold text-green-900">{todayAttendance.checkinCount}명</p>
+                  <div className="flex flex-col lg:flex-row items-center justify-center space-y-6 lg:space-y-0 lg:space-x-12">
+                    {/* 원형 게이지 */}
+                    <div className="relative">
+                      <svg width="200" height="200" className="transform -rotate-90">
+                        {/* 배경 원 */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#e5e7eb"
+                          strokeWidth="12"
+                          fill="transparent"
+                        />
+                        
+                        {/* 출근 (정상 출근) */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#059669"
+                          strokeWidth="12"
+                          fill="transparent"
+                          strokeDasharray={`${(todayAttendance.checkinCount / todayAttendance.totalStudents) * 565.5} 565.5`}
+                          strokeDashoffset="0"
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-out"
+                        />
+                        
+                        {/* 지각 */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#d97706"
+                          strokeWidth="12"
+                          fill="transparent"
+                          strokeDasharray={`${(todayAttendance.lateCount / todayAttendance.totalStudents) * 565.5} 565.5`}
+                          strokeDashoffset={`-${(todayAttendance.checkinCount / todayAttendance.totalStudents) * 565.5}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-out"
+                        />
+                        
+                        {/* 퇴근 */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#2563eb"
+                          strokeWidth="12"
+                          fill="transparent"
+                          strokeDasharray={`${(todayAttendance.checkoutCount / todayAttendance.totalStudents) * 565.5} 565.5`}
+                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount) / todayAttendance.totalStudents) * 565.5}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-out"
+                        />
+                        
+                        {/* 조기퇴근 */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#7c3aed"
+                          strokeWidth="12"
+                          fill="transparent"
+                          strokeDasharray={`${(todayAttendance.earlyLeaveCount / todayAttendance.totalStudents) * 565.5} 565.5`}
+                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount + todayAttendance.checkoutCount) / todayAttendance.totalStudents) * 565.5}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-out"
+                        />
+                        
+                        {/* 휴가 */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#eab308"
+                          strokeWidth="12"
+                          fill="transparent"
+                          strokeDasharray={`${(todayAttendance.vacationCount / todayAttendance.totalStudents) * 565.5} 565.5`}
+                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount + todayAttendance.checkoutCount + todayAttendance.earlyLeaveCount) / todayAttendance.totalStudents) * 565.5}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-out"
+                        />
+                        
+                        {/* 결근 */}
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="90"
+                          stroke="#dc2626"
+                          strokeWidth="12"
+                          fill="transparent"
+                          strokeDasharray={`${(todayAttendance.absentCount / todayAttendance.totalStudents) * 565.5} 565.5`}
+                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount + todayAttendance.checkoutCount + todayAttendance.earlyLeaveCount + todayAttendance.vacationCount) / todayAttendance.totalStudents) * 565.5}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-out"
+                        />
+                      </svg>
+                      
+                      {/* 중앙 텍스트 */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-3xl font-bold text-gray-800">{todayAttendance.totalStudents}명</span>
+                        <span className="text-sm text-gray-600">전체 학생</span>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="bg-orange-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <Clock className="w-6 h-6 text-orange-600" />
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-orange-600">지각</p>
-                        <p className="text-xl font-bold text-orange-900">{todayAttendance.lateCount}명</p>
+                    
+                    {/* 범례 */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-green-600 rounded-full"></div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">출근</p>
+                          <p className="text-lg font-bold text-green-600">{todayAttendance.checkinCount}명</p>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <Clock className="w-6 h-6 text-blue-600" />
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-blue-600">퇴근</p>
-                        <p className="text-xl font-bold text-blue-900">{todayAttendance.checkoutCount}명</p>
+                      
+                      <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-yellow-600 rounded-full"></div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">지각</p>
+                          <p className="text-lg font-bold text-yellow-600">{todayAttendance.lateCount}명</p>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-purple-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <Clock className="w-6 h-6 text-purple-600" />
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-purple-600">조기퇴근</p>
-                        <p className="text-xl font-bold text-purple-900">{todayAttendance.earlyLeaveCount}명</p>
+                      
+                      <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-blue-600 rounded-full"></div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">퇴근</p>
+                          <p className="text-lg font-bold text-blue-600">{todayAttendance.checkoutCount}명</p>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-red-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <UserX className="w-6 h-6 text-red-600" />
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-red-600">결근</p>
-                        <p className="text-xl font-bold text-red-900">{todayAttendance.absentCount}명</p>
+                      
+                      <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-purple-600 rounded-full"></div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">조기퇴근</p>
+                          <p className="text-lg font-bold text-purple-600">{todayAttendance.earlyLeaveCount}명</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">휴가</p>
+                          <p className="text-lg font-bold text-yellow-500">{todayAttendance.vacationCount}명</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-red-600 rounded-full"></div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">결근</p>
+                          <p className="text-lg font-bold text-red-600">{todayAttendance.absentCount}명</p>
+                        </div>
                       </div>
                     </div>
                   </div>

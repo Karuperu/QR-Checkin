@@ -13,7 +13,7 @@ import {
   setStudentAttendanceStatus, getAttendanceStatusLabel, getAttendanceStatusColor,
   getPendingVacationRequestsCount, getVacationRequests,
   formatLocalTime, formatLocalDate, formatLocalDateTime, formatLocalDateRange, getTodayLocal,
-  getLocalTime, loadWorkTimeSettings, determineAttendanceType,
+  getLocalTime, determineAttendanceType, getStudent30DaysAttendanceRecords,
   type User, type AttendanceStatus, validateQRLocation, getLocationNameByCoords, getAttendanceStatusByDate,
   type VacationRequest
 } from '../lib/supabase'
@@ -296,6 +296,25 @@ export default function AttendancePage() {
 
   // useState 추가
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
+  
+  // 학생용 30일 기록 관련 state
+  const [student30DaysRecords, setStudent30DaysRecords] = useState<{
+    date: string
+    checkinTime: string | null
+    checkoutTime: string | null
+    status: AttendanceStatus | null
+    absence_reason: string | null
+    is_edited: boolean
+  }[]>([])
+  const [editingAbsenceReasonDate, setEditingAbsenceReasonDate] = useState<string | null>(null)
+  const [editingAbsenceReasonValue, setEditingAbsenceReasonValue] = useState('')
+  const [showReasonModal, setShowReasonModal] = useState(false)
+  const [pendingReasonData, setPendingReasonData] = useState<{
+    scanType: 'checkin' | 'checkout'
+    reason: string
+    isLate: boolean
+    isEarlyLeave: boolean
+  } | null>(null)
 
   // 카메라 시작
   const startCamera = async () => {
@@ -455,6 +474,10 @@ export default function AttendancePage() {
   useEffect(() => {
     if (currentUser && activeTab === 'records') {
       loadAttendanceRecords()
+      // 학생인 경우 30일 기록도 로드
+      if (currentUser.role === 'student') {
+        loadStudent30DaysRecords()
+      }
     }
     if (currentUser && activeTab === 'stats' && currentUser.role === 'faculty') {
       loadAllStats()
@@ -492,7 +515,58 @@ export default function AttendancePage() {
     }
   }
 
+  // 학생용 30일 출퇴근 기록 로드
+  const loadStudent30DaysRecords = async () => {
+    if (!currentUser || currentUser.role !== 'student') return
+    
+    try {
+      const records = await getStudent30DaysAttendanceRecords(currentUser.id)
+      setStudent30DaysRecords(records)
+    } catch (err) {
+      console.error('30일 출퇴근 기록 로드 오류:', err)
+    }
+  }
 
+  // 학생용 지각/결석 사유 저장
+  const handleSaveStudentAbsenceReason = async (date: string) => {
+    if (!currentUser || !editingAbsenceReasonValue.trim()) return
+    
+    try {
+      // 해당 날짜의 출퇴근 기록을 찾아서 업데이트 (한국 시간 기준)
+      const startOfDay = new Date(date + 'T00:00:00+09:00')
+      const endOfDay = new Date(date + 'T23:59:59+09:00')
+      
+      const { error } = await supabase
+        .from('attendance_logs')
+        .update({ 
+          absence_reason: editingAbsenceReasonValue.trim(),
+          is_edited: true,
+          edited_at: new Date().toISOString()
+        })
+        .eq('user_id', currentUser.id)
+        .gte('scan_time', startOfDay.toISOString())
+        .lt('scan_time', endOfDay.toISOString())
+
+      if (error) throw error
+      
+      // 로컬 상태 업데이트
+      setStudent30DaysRecords(prev => 
+        prev.map(record => 
+          record.date === date 
+            ? { ...record, absence_reason: editingAbsenceReasonValue.trim(), is_edited: true }
+            : record
+        )
+      )
+      
+      // 편집 모드 종료
+      setEditingAbsenceReasonDate(null)
+      setEditingAbsenceReasonValue('')
+      
+    } catch (err) {
+      console.error('지각/결석 사유 저장 오류:', err)
+      alert('사유 저장에 실패했습니다.')
+    }
+  }
 
   const loadAttendanceRecords = async () => {
     if (!currentUser) return
@@ -994,8 +1068,33 @@ export default function AttendancePage() {
   const handleSaveScan = async (scanType: 'checkin' | 'checkout') => {
     if (!currentUser || !pendingScan) return
     setSelectScanTypeOpen(false)
+    
+    // 시간 체크
+    const timeStatus = checkTimeStatus()
+    const isLate = scanType === 'checkin' && timeStatus.isLate
+    const isEarlyLeave = scanType === 'checkout' && timeStatus.isEarlyLeave
+    
+    // 지각이나 조기퇴근인 경우 사유 입력 모달 표시
+    if (isLate || isEarlyLeave) {
+      setPendingReasonData({
+        scanType,
+        reason: '',
+        isLate,
+        isEarlyLeave
+      })
+      setShowReasonModal(true)
+      return
+    }
+    
+    // 정상 시간인 경우 바로 저장
+    await saveAttendanceRecordDirect(scanType)
+  }
+
+  // 직접 저장 함수 (사유 없이)
+  const saveAttendanceRecordDirect = async (scanType: 'checkin' | 'checkout') => {
+    if (!currentUser || !pendingScan) return
     setIsLoading(true)
-    console.log('[handleSaveScan] 시작', { scanType, pendingScan })
+    
     let latitude: number | undefined = undefined
     let longitude: number | undefined = undefined
     try {
@@ -1020,18 +1119,18 @@ export default function AttendancePage() {
       })
       latitude = pos.latitude
       longitude = pos.longitude
-      console.log('[handleSaveScan] 위치 권한 OK', { latitude, longitude })
+      console.log('[saveAttendanceRecordDirect] 위치 권한 OK', { latitude, longitude })
     } catch (geoErr) {
       setScanError(geoErr instanceof Error ? geoErr.message : '위치 정보를 가져올 수 없습니다.')
       setIsLoading(false)
       setPendingScan(null)
-      setSelectScanTypeOpen(false)
-      console.error('[handleSaveScan] 위치 권한 오류', geoErr)
+      console.error('[saveAttendanceRecordDirect] 위치 권한 오류', geoErr)
       return
     }
+    
     try {
       // 출퇴근 기록 저장
-      console.log('[handleSaveScan] saveAttendanceRecord 호출')
+      console.log('[saveAttendanceRecordDirect] saveAttendanceRecord 호출')
       const success = await saveAttendanceRecord(
         currentUser.id,
         scanType,
@@ -1039,7 +1138,7 @@ export default function AttendancePage() {
         latitude,
         longitude
       )
-      console.log('[handleSaveScan] saveAttendanceRecord 결과', success)
+      console.log('[saveAttendanceRecordDirect] saveAttendanceRecord 결과', success)
       setIsLoading(false)
       setPendingScan(null)
       if (success) {
@@ -1056,23 +1155,22 @@ export default function AttendancePage() {
           location: pendingScan.location
         })
         try {
-          console.log('[handleSaveScan] loadAttendanceRecords 호출')
+          console.log('[saveAttendanceRecordDirect] loadAttendanceRecords 호출')
           await loadAttendanceRecords()
-          console.log('[handleSaveScan] loadAttendanceRecords 완료')
+          console.log('[saveAttendanceRecordDirect] loadAttendanceRecords 완료')
         } catch (loadErr) {
-          console.error('[handleSaveScan] loadAttendanceRecords 오류', loadErr)
+          console.error('[saveAttendanceRecordDirect] loadAttendanceRecords 오류', loadErr)
         }
       } else {
         setScanError('출퇴근 기록 저장에 실패했습니다.')
       }
     } catch (err) {
       setScanError('알 수 없는 오류가 발생했습니다.')
-      console.error('[handleSaveScan] 예외', err)
+      console.error('[saveAttendanceRecordDirect] 예외', err)
     } finally {
       setIsLoading(false)
       setPendingScan(null)
-      setSelectScanTypeOpen(false)
-      console.log('[handleSaveScan] finally 종료')
+      console.log('[saveAttendanceRecordDirect] finally 종료')
     }
   }
 
@@ -1462,6 +1560,178 @@ export default function AttendancePage() {
     return labels.map(label => (dateMap[label]?.checkin || 0) + (dateMap[label]?.checkout || 0));
   }
 
+  // 시간 체크 함수
+  const checkTimeStatus = () => {
+    const now = new Date()
+    const currentHour = now.getHours()
+    const currentMinute = now.getMinutes()
+    const currentTime = currentHour * 60 + currentMinute
+    
+    // 출근 시간: 9시 30분까지 (570분)
+    const checkinDeadline = 9 * 60 + 30
+    // 퇴근 시작 시간: 18시 (1080분)
+    const checkoutStart = 18 * 60
+    
+    return {
+      isLate: currentTime > checkinDeadline,
+      isEarlyLeave: currentTime < checkoutStart,
+      currentTime: currentTime
+    }
+  }
+
+  // 사유 입력 모달 컴포넌트
+  function ReasonInputModal() {
+    const [reason, setReason] = useState('')
+
+    if (!showReasonModal || !pendingReasonData) return null
+
+    const { scanType, isLate, isEarlyLeave } = pendingReasonData
+
+    const handleSubmit = async () => {
+      if (!currentUser || !pendingScan) return
+      
+      setIsLoading(true)
+      let latitude: number | undefined = undefined
+      let longitude: number | undefined = undefined
+      
+      try {
+        // 위치 권한 요청
+        const pos = await new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error('이 브라우저에서는 위치 정보가 지원되지 않습니다.'))
+          } else {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                resolve({
+                  latitude: pos.coords.latitude,
+                  longitude: pos.coords.longitude
+                })
+              },
+              (err) => {
+                reject(new Error('위치 정보를 가져올 수 없습니다. 위치 권한을 허용해 주세요.'))
+              },
+              { enableHighAccuracy: true, timeout: 10000 }
+            )
+          }
+        })
+        latitude = pos.latitude
+        longitude = pos.longitude
+      } catch (geoErr) {
+        setScanError(geoErr instanceof Error ? geoErr.message : '위치 정보를 가져올 수 없습니다.')
+        setIsLoading(false)
+        setPendingScan(null)
+        setShowReasonModal(false)
+        setPendingReasonData(null)
+        return
+      }
+
+      try {
+        // 출퇴근 기록 저장 (사유 포함)
+        const success = await saveAttendanceRecord(
+          currentUser.id,
+          scanType,
+          pendingScan.location,
+          latitude,
+          longitude,
+          reason.trim() || undefined
+        )
+        
+        setIsLoading(false)
+        setPendingScan(null)
+        setShowReasonModal(false)
+        setPendingReasonData(null)
+        
+        if (success) {
+          setScanResult({
+            success: true,
+            scanType,
+            user: {
+              name: currentUser.name,
+              role: currentUser.role,
+              user_id: currentUser.user_id,
+              department: currentUser.department,
+              id: currentUser.id
+            },
+            location: pendingScan.location
+          })
+          await loadAttendanceRecords()
+        } else {
+          setScanError('출퇴근 기록 저장에 실패했습니다.')
+        }
+      } catch (err) {
+        setScanError('알 수 없는 오류가 발생했습니다.')
+        console.error('[ReasonInputModal] 예외', err)
+      } finally {
+        setIsLoading(false)
+        setPendingScan(null)
+        setShowReasonModal(false)
+        setPendingReasonData(null)
+      }
+    }
+
+    const handleCancel = () => {
+      setShowReasonModal(false)
+      setPendingReasonData(null)
+      setPendingScan(null)
+    }
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+          <div className="text-center mb-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-2">
+              {isLate ? '지각 사유 입력' : isEarlyLeave ? '조기퇴근 사유 입력' : '사유 입력'}
+            </h3>
+            <p className="text-sm text-gray-600">
+              {isLate 
+                ? '지각 사유를 입력해주세요' 
+                : isEarlyLeave 
+                ? '조기퇴근 사유를 입력해주세요'
+                : '사유를 입력해주세요'
+              }
+            </p>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                사유
+              </label>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder={isLate 
+                  ? '예: 교통체증, 알람을 못들어서...' 
+                  : isEarlyLeave 
+                  ? '예: 개인사정, 병원진료...'
+                  : '사유를 입력해주세요'
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                rows={3}
+              />
+            </div>
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={handleCancel}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isLoading}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isLoading ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-7xl">
@@ -1678,7 +1948,7 @@ export default function AttendancePage() {
                         className="btn-secondary inline-flex items-center gap-2 w-full"
                       >
                         <Download size={20} />
-                        CSV 내보내기
+                        기록 다운로드
                       </button>
                     </div>
                   )}
@@ -1715,14 +1985,121 @@ export default function AttendancePage() {
                   </div>
                 </div>
 
-                {/* 출퇴근 기록 테이블 */}
-                <div className="overflow-x-auto">
-                  <h2 className="text-xl font-semibold mb-4">
-                    출퇴근 기록 ({selectedDate})
-                    {selectedRole !== 'all' && ` - ${getRoleLabel(selectedRole)}`}
-                    {selectedUser !== 'all' && selectedRole === 'all' && ` - ${users.find(u => u.id === selectedUser)?.name || '알 수 없음'}`}
-                    {selectedLocation !== 'all' && ` - ${selectedLocation}`}
-                  </h2>
+                {/* 학생용 30일 출퇴근 기록 테이블 */}
+                {currentUser.role === 'student' ? (
+                  <div className="overflow-x-auto">
+                    <h2 className="text-xl font-semibold mb-4">
+                      지난 30일 출퇴근 기록
+                    </h2>
+                    
+                    {student30DaysRecords.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        출퇴근 기록이 없습니다.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full bg-white text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                날짜
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                출근시간
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                퇴근시간
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                상태
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                지각/결석사유
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {student30DaysRecords.map((record, index) => (
+                              <tr key={index} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                  {formatLocalDate(record.date)}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                  {record.checkinTime ? formatLocalTime(record.checkinTime) : '-'}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                  {record.checkoutTime ? formatLocalTime(record.checkoutTime) : '-'}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm">
+                                  {record.status ? (
+                                    <span className={`px-2 py-1 text-xs rounded-full ${getAttendanceStatusColor(record.status)}`}>
+                                      {getAttendanceStatusLabel(record.status)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-900">
+                                  {editingAbsenceReasonDate === record.date ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        value={editingAbsenceReasonValue}
+                                        onChange={(e) => setEditingAbsenceReasonValue(e.target.value)}
+                                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                                        placeholder="지각/결석 사유 입력"
+                                      />
+                                      <button
+                                        onClick={() => handleSaveStudentAbsenceReason(record.date)}
+                                        className="text-green-600 hover:text-green-800"
+                                      >
+                                        <Save className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditingAbsenceReasonDate(null)
+                                          setEditingAbsenceReasonValue('')
+                                        }}
+                                        className="text-gray-600 hover:text-gray-800"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span className="flex-1">
+                                        {record.absence_reason || '-'}
+                                      </span>
+                                      {(record.status === 'late' || record.status === 'absent') && (
+                                        <button
+                                          onClick={() => {
+                                            setEditingAbsenceReasonDate(record.date)
+                                            setEditingAbsenceReasonValue(record.absence_reason || '')
+                                          }}
+                                          className="text-blue-600 hover:text-blue-800"
+                                        >
+                                          <Edit3 className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* 교수용 출퇴근 기록 테이블 */
+                  <div className="overflow-x-auto">
+                    <h2 className="text-xl font-semibold mb-4">
+                      출퇴근 기록 ({selectedDate})
+                      {selectedRole !== 'all' && ` - ${getRoleLabel(selectedRole)}`}
+                      {selectedUser !== 'all' && selectedRole === 'all' && ` - ${users.find(u => u.id === selectedUser)?.name || '알 수 없음'}`}
+                      {selectedLocation !== 'all' && ` - ${selectedLocation}`}
+                    </h2>
                   
                   {isLoading ? (
                     <div className="text-center py-8">
@@ -1742,17 +2119,17 @@ export default function AttendancePage() {
                       <table className="w-full bg-white text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          {currentUser.role !== 'student' && (
+                          {currentUser && (currentUser.role as string) !== 'student' && (
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               사용자
                             </th>
                           )}
-                          {currentUser.role !== 'student' && canEditRecords() && (
+                          {currentUser && (currentUser.role as string) !== 'student' && canEditRecords() && (
                             <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               구분
                             </th>
                           )}
-                          {currentUser.role !== 'student' && (
+                          {currentUser && (currentUser.role as string) !== 'student' && (
                             <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               소속
                             </th>
@@ -1995,7 +2372,8 @@ export default function AttendancePage() {
                       </table>
                     </div>
                   )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2707,7 +3085,7 @@ export default function AttendancePage() {
           </div>
         </div>
       )}
-      
+      <ReasonInputModal />
     </div>
   )
 } 
