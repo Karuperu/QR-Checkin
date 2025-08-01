@@ -11,7 +11,7 @@ interface Group {
   status: 'active' | 'inactive'
 }
 
-const ProjectManagementPage = () => {
+const GroupManagementPage = () => {
   const navigate = useNavigate()
   const [groups, setGroups] = useState<Group[]>([
     {
@@ -85,7 +85,7 @@ const ProjectManagementPage = () => {
 
   const handleGroupSelect = (groupId: string) => {
     // 그룹별 출퇴근 관리 페이지로 이동
-    navigate(`/project-attendance/${groupId}`)
+    navigate(`/group-attendance/${groupId}`)
   }
 
   return (
@@ -320,4 +320,4 @@ const ProjectManagementPage = () => {
   )
 }
 
-export default ProjectManagementPage
+export default GroupManagementPage 

@@ -1,198 +1,120 @@
-import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Calendar, FileText, CheckCircle, XCircle, AlertCircle, Plus, Bell, LogOut, User as UserIcon, Users, Plane, Settings, QrCode } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
-  getCurrentUser, 
-  createVacationRequest, 
-  getVacationRequests, 
-  reviewVacationRequest, 
-  getPendingVacationRequestsCount,
-  getVacationRequestTypeLabel,
-  getVacationRequestStatusLabel,
-  getVacationRequestStatusColor,
-  logoutUser,
-  formatLocalDate,
-  type User, 
-  type VacationRequest, 
-  type VacationRequestType,
-  // type VacationRequestStatus
-} from '../lib/supabase'
+  ArrowLeft, Calendar, FileText, CheckCircle, XCircle, 
+  Plus, Bell, LogOut, User as UserIcon, Plane, Clock
+} from 'lucide-react'
+
+interface VacationRequest {
+  id: string
+  user_id: string
+  start_date: string
+  end_date: string
+  reason: string
+  request_type: 'vacation' | 'sick_leave' | 'personal'
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  reviewed_at?: string
+  review_comment?: string
+  users?: {
+    name: string
+    user_id: string
+    department: string
+  }
+  reviewer?: {
+    name: string
+  }
+}
 
 export default function VacationRequestPage() {
   const navigate = useNavigate()
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+  const [currentUser] = useState({
+    name: '김학생',
+    role: 'student' as 'student' | 'faculty',
+    department: '컴퓨터공학과',
+    user_id: '2024001',
+    id: '1'
+  })
   
-  // 휴가 신청 관련 상태
-  const [vacationRequests, setVacationRequests] = useState<VacationRequest[]>([])
-  const [pendingCount, setPendingCount] = useState(0)
-  const [selectedTab, setSelectedTab] = useState<'create' | 'list' | 'pending'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'pending'>('list')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   
-  // 신청 폼 상태
+  // 더미 휴가 신청 데이터
+  const [vacationRequests] = useState<VacationRequest[]>([
+    {
+      id: '1',
+      user_id: '2024001',
+      start_date: '2024-01-25',
+      end_date: '2024-01-26',
+      reason: '개인 사정으로 인한 휴가 신청',
+      request_type: 'vacation',
+      status: 'approved',
+      created_at: '2024-01-20',
+      reviewed_at: '2024-01-21',
+      review_comment: '승인되었습니다.',
+      users: { name: '김학생', user_id: '2024001', department: '컴퓨터공학과' },
+      reviewer: { name: '손봉기 교수님' }
+    },
+    {
+      id: '2',
+      user_id: '2024002',
+      start_date: '2024-01-30',
+      end_date: '2024-01-30',
+      reason: '병원 진료',
+      request_type: 'sick_leave',
+      status: 'pending',
+      created_at: '2024-01-18',
+      users: { name: '이학생', user_id: '2024002', department: '전자공학과' }
+    }
+  ])
+  
+  const [pendingCount] = useState(1)
   const [formData, setFormData] = useState({
     startDate: '',
     endDate: '',
     reason: '',
-    requestType: 'vacation' as VacationRequestType
+    requestType: 'vacation' as 'vacation' | 'sick_leave' | 'personal'
   })
   
-  // 검토 상태
   const [reviewingRequest, setReviewingRequest] = useState<string | null>(null)
   const [reviewComment, setReviewComment] = useState('')
 
-  // 알림 관련 상태
-  const [showAlertModal, setShowAlertModal] = useState(false)
-  const [unreadAlerts, setUnreadAlerts] = useState<VacationRequest[]>([])
-
   useEffect(() => {
-    initializeUser()
-  }, [])
-
-  useEffect(() => {
-    if (currentUser) {
-      loadVacationRequests()
-      if (currentUser.role === 'faculty') {
-        loadPendingCount()
-        setSelectedTab('pending')
-      }
+    if (currentUser.role === 'faculty') {
+      setActiveTab('pending')
     }
   }, [currentUser])
 
-  // --- 승인/거절 알림 계산 ---
-  useEffect(() => {
-    if (currentUser && currentUser.role === 'student') {
-      const seenIds = JSON.parse(localStorage.getItem('vacation_alert_seen') || '[]')
-      const alerts = vacationRequests.filter(r =>
-        (r.status === 'approved' || r.status === 'rejected') &&
-        !seenIds.includes(r.id)
-      )
-      setUnreadAlerts(alerts)
-    }
-  }, [vacationRequests, currentUser])
-
-  const handleAlertClick = () => {
-    setShowAlertModal(true)
-    // 알림 확인 처리
-    if (unreadAlerts.length > 0) {
-      const seenIds = JSON.parse(localStorage.getItem('vacation_alert_seen') || '[]')
-      const newIds = [...seenIds, ...unreadAlerts.map(a => a.id)]
-      localStorage.setItem('vacation_alert_seen', JSON.stringify(newIds))
-      setUnreadAlerts([])
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'vacation': return '휴가'
+      case 'sick_leave': return '병가'
+      case 'personal': return '개인사정'
+      default: return type
     }
   }
 
-  const initializeUser = () => {
-    const user = getCurrentUser()
-    if (!user) {
-      navigate('/')
-      return
-    }
-    setCurrentUser(user)
-    setLoading(false)
-  }
-
-  const loadVacationRequests = async () => {
-    if (!currentUser) return
-    
-    try {
-      const requests = await getVacationRequests(currentUser)
-      setVacationRequests(requests)
-    } catch (err) {
-      console.error('휴가 신청 목록 로드 오류:', err)
-      setError('휴가 신청 목록을 불러오는데 실패했습니다.')
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'pending': return '대기중'
+      case 'approved': return '승인'
+      case 'rejected': return '거절'
+      default: return status
     }
   }
 
-  const loadPendingCount = async () => {
-    try {
-      const count = await getPendingVacationRequestsCount()
-      setPendingCount(count)
-    } catch (err) {
-      console.error('대기 중인 신청 개수 로드 오류:', err)
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return 'bg-yellow-100 text-yellow-800'
+      case 'approved': return 'bg-green-100 text-green-800'
+      case 'rejected': return 'bg-red-100 text-red-800'
+      default: return 'bg-gray-100 text-gray-800'
     }
-  }
-
-  const handleSubmitRequest = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!currentUser) return
-
-    try {
-      setError('')
-      setSuccess('')
-
-      // 유효성 검증
-      if (!formData.startDate || !formData.endDate || !formData.reason.trim()) {
-        setError('모든 필드를 입력해주세요.')
-        return
-      }
-
-      if (new Date(formData.startDate) > new Date(formData.endDate)) {
-        setError('종료일은 시작일보다 늦어야 합니다.')
-        return
-      }
-
-      const success = await createVacationRequest(
-        currentUser.id,
-        formData.startDate,
-        formData.endDate,
-        formData.reason.trim(),
-        formData.requestType
-      )
-
-      if (success) {
-        setSuccess('휴가 신청이 성공적으로 제출되었습니다.')
-        setFormData({
-          startDate: '',
-          endDate: '',
-          reason: '',
-          requestType: 'vacation'
-        })
-        await loadVacationRequests()
-        setSelectedTab('list')
-      } else {
-        setError('휴가 신청 제출에 실패했습니다.')
-      }
-    } catch (err) {
-      console.error('휴가 신청 제출 오류:', err)
-      setError('휴가 신청 제출 중 오류가 발생했습니다.')
-    }
-  }
-
-  const handleReviewRequest = async (requestId: string, status: 'approved' | 'rejected') => {
-    if (!currentUser) return
-
-    try {
-      const success = await reviewVacationRequest(
-        requestId,
-        currentUser.id,
-        status,
-        reviewComment.trim() || undefined
-      )
-
-      if (success) {
-        setSuccess(`휴가 신청이 ${status === 'approved' ? '승인' : '거절'}되었습니다.`)
-        setReviewingRequest(null)
-        setReviewComment('')
-        await loadVacationRequests()
-        await loadPendingCount()
-      } else {
-        setError('휴가 신청 처리에 실패했습니다.')
-      }
-    } catch (err) {
-      console.error('휴가 신청 처리 오류:', err)
-      setError('휴가 신청 처리 중 오류가 발생했습니다.')
-    }
-  }
-
-  const handleLogout = () => {
-    logoutUser()
-    navigate('/')
   }
 
   const formatDate = (dateStr: string) => {
-    return formatLocalDate(dateStr)
+    return new Date(dateStr).toLocaleDateString('ko-KR')
   }
 
   const getDaysDifference = (startDate: string, endDate: string) => {
@@ -203,88 +125,129 @@ export default function VacationRequestPage() {
     return diffDays
   }
 
+  const handleSubmitRequest = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setMessage(null)
+
+    // 유효성 검증
+    if (!formData.startDate || !formData.endDate || !formData.reason.trim()) {
+      setMessage({ type: 'error', text: '모든 필드를 입력해주세요.' })
+      setLoading(false)
+      return
+    }
+
+    if (new Date(formData.startDate) > new Date(formData.endDate)) {
+      setMessage({ type: 'error', text: '종료일은 시작일보다 늦어야 합니다.' })
+      setLoading(false)
+      return
+    }
+
+    // 시뮬레이션
+    setTimeout(() => {
+      setMessage({ type: 'success', text: '휴가 신청이 성공적으로 제출되었습니다.' })
+      setFormData({
+        startDate: '',
+        endDate: '',
+        reason: '',
+        requestType: 'vacation'
+      })
+      setLoading(false)
+      setActiveTab('list')
+    }, 1000)
+  }
+
+  const handleReviewRequest = async (requestId: string, status: 'approved' | 'rejected') => {
+    setLoading(true)
+    
+    // 시뮬레이션
+    setTimeout(() => {
+      setMessage({ 
+        type: 'success', 
+        text: `휴가 신청이 ${status === 'approved' ? '승인' : '거절'}되었습니다.` 
+      })
+      setReviewingRequest(null)
+      setReviewComment('')
+      setLoading(false)
+    }, 1000)
+  }
+
   const getPendingRequests = () => {
     return vacationRequests.filter(req => req.status === 'pending')
   }
 
-  // 역할별 아이콘 함수 (AttendancePage와 동일)
-  const getRoleIcon = (role: string) => {
-    switch (role) {
-      case 'student':
-        return <UserIcon className="w-4 h-4 text-blue-600" />
-      case 'faculty':
-        return <Users className="w-4 h-4 text-green-600" />
-      default:
-        return <UserIcon className="w-4 h-4 text-gray-600" />
+  const getMyRequests = () => {
+    if (currentUser.role === 'faculty') {
+      return vacationRequests
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-      </div>
-    )
-  }
-
-  if (!currentUser) {
-    return null
+    return vacationRequests.filter(req => req.user_id === currentUser.user_id)
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-6xl">
-        {/* 헤더 */}
-        <div className="flex justify-between items-center mb-8">
-          <Link to="/attendance?tab=records" className="btn-secondary inline-flex items-center gap-2">
-            <ArrowLeft size={20} />
-            메인으로 돌아가기
-          </Link>
-          <div className="flex items-center gap-4">
-            
-            <div className="flex items-center gap-2 text-black">
-              {getRoleIcon(currentUser.role)}
-              <span className="font-medium align-middle">{currentUser.name}</span>
-              <span className="text-sm opacity-80 align-middle">
-                ({currentUser.role === 'faculty' ? '교직원' : '학생'})
-              </span>
+    <div className="min-h-screen bg-gray-50">
+      {/* 헤더 */}
+      <div className="bg-white shadow-sm px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button onClick={() => navigate(currentUser.role === 'faculty' ? '/faculty-attendance' : '/student-attendance')} className="p-2 hover:bg-gray-100 rounded-lg">
+              <ArrowLeft size={20} className="text-gray-600" />
+            </button>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-800">휴가 관리</h1>
+              <p className="text-sm text-gray-600">휴가 신청 및 관리</p>
             </div>
-            <button
-              onClick={handleLogout}
-              className="text-gray-700 hover:text-red-600 transition-colors"
-              title="로그아웃"
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                <UserIcon className="w-5 h-5 text-blue-600" />
+              </div>
+              <div className="text-sm">
+                <div className="font-medium text-gray-800">{currentUser.name}</div>
+                <div className="text-gray-500">{currentUser.role === 'faculty' ? '교직원' : '학생'}</div>
+              </div>
+            </div>
+            <button 
+              onClick={() => navigate('/')}
+              className="p-2 text-gray-600 hover:text-red-600 rounded-lg"
             >
               <LogOut size={20} />
             </button>
           </div>
         </div>
+      </div>
 
+      <div className="p-4">
         {/* 탭 네비게이션 */}
-        <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1 mb-6">
-          <div className="flex">
+        <div className="bg-white rounded-2xl shadow-sm mb-6">
+          <div className="flex border-b border-gray-200">
             {currentUser.role === 'student' && (
               <>
                 <button
-                  onClick={() => setSelectedTab('list')}
-                  className={`flex-1 py-3 px-4 rounded-md text-center transition-colors ${
-                    selectedTab === 'list'
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-700 hover:bg-gray-100'
+                  onClick={() => setActiveTab('list')}
+                  className={`flex-1 py-4 px-6 text-center transition-colors ${
+                    activeTab === 'list'
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                      : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  <FileText className="w-5 h-5 mx-auto mb-1" />
-                  내 신청 현황
+                  <div className="flex flex-col items-center space-y-1">
+                    <FileText size={20} />
+                    <span className="text-sm font-medium">내 신청</span>
+                  </div>
                 </button>
                 <button
-                  onClick={() => setSelectedTab('create')}
-                  className={`flex-1 py-3 px-4 rounded-md text-center transition-colors ${
-                    selectedTab === 'create'
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-700 hover:bg-gray-100'
+                  onClick={() => setActiveTab('create')}
+                  className={`flex-1 py-4 px-6 text-center transition-colors ${
+                    activeTab === 'create'
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                      : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  <Plus className="w-5 h-5 mx-auto mb-1" />
-                  휴가 신청
+                  <div className="flex flex-col items-center space-y-1">
+                    <Plus size={20} />
+                    <span className="text-sm font-medium">신청하기</span>
+                  </div>
                 </button>
               </>
             )}
@@ -292,31 +255,37 @@ export default function VacationRequestPage() {
             {currentUser.role === 'faculty' && (
               <>
                 <button
-                  onClick={() => setSelectedTab('pending')}
-                  className={`flex-1 py-3 px-4 rounded-md text-center transition-colors relative ${
-                    selectedTab === 'pending'
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-700 hover:text-purple-600 hover:bg-gray-100'
+                  onClick={() => setActiveTab('pending')}
+                  className={`flex-1 py-4 px-6 text-center transition-colors relative ${
+                    activeTab === 'pending'
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                      : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  <Bell className="w-5 h-5 mx-auto mb-1" />
-                  대기 중인 신청
-                  {pendingCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                      {pendingCount}
-                    </span>
-                  )}
+                  <div className="flex flex-col items-center space-y-1">
+                    <div className="relative">
+                      <Bell size={20} />
+                      {pendingCount > 0 && (
+                        <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                          {pendingCount}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium">대기중</span>
+                  </div>
                 </button>
                 <button
-                  onClick={() => setSelectedTab('list')}
-                  className={`flex-1 py-3 px-4 rounded-md text-center transition-colors ${
-                    selectedTab === 'list'
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-700 hover:text-purple-600 hover:bg-gray-100'
+                  onClick={() => setActiveTab('list')}
+                  className={`flex-1 py-4 px-6 text-center transition-colors ${
+                    activeTab === 'list'
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                      : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  <FileText className="w-5 h-5 mx-auto mb-1" />
-                  모든 신청 내역
+                  <div className="flex flex-col items-center space-y-1">
+                    <FileText size={20} />
+                    <span className="text-sm font-medium">전체 신청</span>
+                  </div>
                 </button>
               </>
             )}
@@ -324,24 +293,30 @@ export default function VacationRequestPage() {
         </div>
 
         {/* 메시지 */}
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
-          </div>
-        )}
-        
-        {success && (
-          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
-            {success}
+        {message && (
+          <div className={`mb-6 p-4 rounded-xl flex items-center space-x-3 ${
+            message.type === 'success' 
+              ? 'bg-green-50 border border-green-200 text-green-700' 
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}>
+            {message.type === 'success' ? (
+              <CheckCircle size={20} />
+            ) : (
+              <XCircle size={20} />
+            )}
+            <span className="font-medium">{message.text}</span>
           </div>
         )}
 
         {/* 컨텐츠 */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          {/* 휴가 신청 폼 (학생용) */}
-          {selectedTab === 'create' && currentUser.role === 'student' && (
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">휴가 신청</h2>
+        <div className="space-y-6">
+          {/* 휴가 신청 폼 */}
+          {activeTab === 'create' && currentUser.role === 'student' && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                <Plane className="w-6 h-6 mr-3 text-blue-600" />
+                새 휴가 신청
+              </h2>
               
               <form onSubmit={handleSubmitRequest} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -353,9 +328,9 @@ export default function VacationRequestPage() {
                       value={formData.requestType}
                       onChange={(e) => setFormData(prev => ({
                         ...prev,
-                        requestType: e.target.value as VacationRequestType
+                        requestType: e.target.value as 'vacation' | 'sick_leave' | 'personal'
                       }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="vacation">휴가</option>
                       <option value="sick_leave">병가</option>
@@ -375,7 +350,7 @@ export default function VacationRequestPage() {
                           ...prev,
                           startDate: e.target.value
                         }))}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
                     </div>
@@ -391,7 +366,7 @@ export default function VacationRequestPage() {
                           ...prev,
                           endDate: e.target.value
                         }))}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
                     </div>
@@ -409,7 +384,7 @@ export default function VacationRequestPage() {
                       reason: e.target.value
                     }))}
                     rows={4}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                     placeholder="휴가 신청 사유를 상세히 입력해주세요..."
                     required
                   />
@@ -418,38 +393,41 @@ export default function VacationRequestPage() {
                 <div className="flex justify-end gap-4">
                   <button
                     type="button"
-                    onClick={() => setSelectedTab('list')}
-                    className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    onClick={() => setActiveTab('list')}
+                    className="px-6 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
                   >
                     취소
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                    disabled={loading}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
                   >
-                    신청하기
+                    {loading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
+                    <span>{loading ? '신청 중...' : '신청하기'}</span>
                   </button>
                 </div>
               </form>
             </div>
           )}
 
-          {/* 대기 중인 신청 목록 (교수용) */}
-          {selectedTab === 'pending' && currentUser.role === 'faculty' && (
+          {/* 대기 중인 신청 (교직원용) */}
+          {activeTab === 'pending' && currentUser.role === 'faculty' && (
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                <Bell className="w-6 h-6 mr-3 text-orange-600" />
                 대기 중인 휴가 신청 ({pendingCount}건)
               </h2>
               
               {getPendingRequests().length === 0 ? (
-                <div className="text-center py-12">
-                  <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+                  <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500">대기 중인 휴가 신청이 없습니다.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {getPendingRequests().map((request) => (
-                    <div key={request.id} className="border border-gray-200 rounded-lg p-6">
+                    <div key={request.id} className="bg-white rounded-2xl shadow-sm p-6">
                       <div className="flex justify-between items-start mb-4">
                         <div>
                           <h3 className="text-lg font-semibold text-gray-900">
@@ -457,15 +435,15 @@ export default function VacationRequestPage() {
                           </h3>
                           <p className="text-sm text-gray-500">{request.users?.department}</p>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getVacationRequestStatusColor(request.status)}`}>
-                          {getVacationRequestStatusLabel(request.status)}
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(request.status)}`}>
+                          {getStatusLabel(request.status)}
                         </span>
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                           <span className="text-sm font-medium text-gray-500">신청 종류</span>
-                          <p className="text-gray-900">{getVacationRequestTypeLabel(request.request_type)}</p>
+                          <p className="text-gray-900">{getTypeLabel(request.request_type)}</p>
                         </div>
                         <div>
                           <span className="text-sm font-medium text-gray-500">기간</span>
@@ -484,7 +462,7 @@ export default function VacationRequestPage() {
                       
                       <div className="mb-4">
                         <span className="text-sm font-medium text-gray-500">신청 사유</span>
-                        <p className="text-gray-900 mt-1">{request.reason}</p>
+                        <p className="text-gray-900 mt-1 bg-gray-50 p-3 rounded-lg">{request.reason}</p>
                       </div>
                       
                       {reviewingRequest === request.id ? (
@@ -497,17 +475,17 @@ export default function VacationRequestPage() {
                               value={reviewComment}
                               onChange={(e) => setReviewComment(e.target.value)}
                               rows={3}
-                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                               placeholder="검토 의견을 입력해주세요..."
                             />
                           </div>
-                          <div className="flex justify-end gap-4">
+                          <div className="flex justify-end gap-3">
                             <button
                               onClick={() => {
                                 setReviewingRequest(null)
                                 setReviewComment('')
                               }}
-                              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                              className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                             >
                               취소
                             </button>
@@ -531,7 +509,7 @@ export default function VacationRequestPage() {
                         <div className="flex justify-end">
                           <button
                             onClick={() => setReviewingRequest(request.id)}
-                            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                           >
                             검토하기
                           </button>
@@ -545,26 +523,35 @@ export default function VacationRequestPage() {
           )}
 
           {/* 신청 목록 */}
-          {selectedTab === 'list' && (
+          {activeTab === 'list' && (
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                {currentUser.role === 'faculty' ? '모든 휴가 신청 내역' : '내 휴가 신청 현황'}
+              <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                <FileText className="w-6 h-6 mr-3 text-green-600" />
+                {currentUser.role === 'faculty' ? '전체 휴가 신청 내역' : '내 휴가 신청 현황'}
               </h2>
               
-              {vacationRequests.length === 0 ? (
-                <div className="text-center py-12">
-                  <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">
+              {getMyRequests().length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+                  <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 mb-4">
                     {currentUser.role === 'faculty' 
                       ? '휴가 신청 내역이 없습니다.' 
-                      : '휴가 신청 내역이 없습니다. 새로운 휴가를 신청해보세요.'
+                      : '휴가 신청 내역이 없습니다.'
                     }
                   </p>
+                  {currentUser.role === 'student' && (
+                    <button
+                      onClick={() => setActiveTab('create')}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                    >
+                      새 휴가 신청하기
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {vacationRequests.map((request) => (
-                    <div key={request.id} className="border border-gray-200 rounded-lg p-6">
+                  {getMyRequests().map((request) => (
+                    <div key={request.id} className="bg-white rounded-2xl shadow-sm p-6">
                       <div className="flex justify-between items-start mb-4">
                         <div>
                           {currentUser.role === 'faculty' && (
@@ -577,12 +564,12 @@ export default function VacationRequestPage() {
                           )}
                           {currentUser.role === 'student' && (
                             <h3 className="text-lg font-semibold text-gray-900">
-                              {getVacationRequestTypeLabel(request.request_type)}
+                              {getTypeLabel(request.request_type)}
                             </h3>
                           )}
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getVacationRequestStatusColor(request.status)}`}>
-                          {getVacationRequestStatusLabel(request.status)}
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(request.status)}`}>
+                          {getStatusLabel(request.status)}
                         </span>
                       </div>
                       
@@ -610,15 +597,15 @@ export default function VacationRequestPage() {
                       
                       <div className="mb-4">
                         <span className="text-sm font-medium text-gray-500">신청 사유</span>
-                        <p className="text-gray-900 mt-1">{request.reason}</p>
+                        <p className="text-gray-900 mt-1 bg-gray-50 p-3 rounded-lg">{request.reason}</p>
                       </div>
                       
                       {request.review_comment && (
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <span className="text-sm font-medium text-gray-500">검토 의견</span>
-                          <p className="text-gray-900 mt-1">{request.review_comment}</p>
+                        <div className="bg-blue-50 rounded-lg p-4">
+                          <span className="text-sm font-medium text-blue-800">검토 의견</span>
+                          <p className="text-blue-900 mt-1">{request.review_comment}</p>
                           {request.reviewer && (
-                            <p className="text-sm text-gray-500 mt-2">
+                            <p className="text-sm text-blue-600 mt-2">
                               검토자: {request.reviewer.name}
                             </p>
                           )}
@@ -632,36 +619,6 @@ export default function VacationRequestPage() {
           )}
         </div>
       </div>
-
-      {/* 알림 모달 */}
-      {showAlertModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-30">
-          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-xs relative">
-            <button className="absolute top-2 right-2 text-gray-400 hover:text-gray-700" onClick={() => setShowAlertModal(false)}>X</button>
-            <h2 className="text-lg font-bold mb-4">휴가신청 처리 알림</h2>
-            {vacationRequests.filter(r => r.status === 'approved' || r.status === 'rejected').length === 0 ? (
-              <p className="text-gray-500">최근 처리된 휴가신청이 없습니다.</p>
-            ) : (
-              <ul className="space-y-2">
-                {vacationRequests.filter(r => r.status === 'approved' || r.status === 'rejected').map(r => (
-                  <li key={r.id} className="border rounded p-2 flex items-center gap-2">
-                    {r.status === 'approved' ? (
-                      <CheckCircle className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-500" />
-                    )}
-                    <span className="flex-1 text-sm">
-                      {r.status === 'approved' ? '휴가신청이 승인되었습니다.' : '휴가신청이 거절되었습니다.'}
-                      <br />
-                      <span className="text-xs text-gray-500">{r.created_at && (r.created_at.split('T')[0])}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 } 

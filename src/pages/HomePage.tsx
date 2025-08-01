@@ -99,7 +99,7 @@ export default function HomePage() {
           setTimeout(() => {
             // 역할에 따라 다른 페이지로 이동
             if (userRole === 'student') {
-              navigate('/attendance')
+              navigate('/student-attendance')
             } else {
               navigate('/faculty-attendance')
             }
@@ -252,7 +252,7 @@ export default function HomePage() {
                   type="text"
                   value={formData.userId}
                   onChange={(e) => setFormData(prev => ({ ...prev, userId: e.target.value }))}
-                  className="w-full px-3 py-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="input-field pl-10"
                   placeholder={!isLogin && selectedRole === 'student' ? '학번을 입력하세요' : !isLogin && selectedRole === 'faculty' ? '교직원 ID를 입력하세요' : '사용자 ID를 입력하세요'}
                 />
               </div>
@@ -266,7 +266,7 @@ export default function HomePage() {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="input-field"
                   placeholder="이름을 입력하세요"
                 />
               </div>
@@ -282,7 +282,7 @@ export default function HomePage() {
                   type="text"
                   value={formData.department}
                   onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
-                  className="w-full px-3 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="input-field"
                   placeholder={selectedRole === 'student' ? '학과를 입력하세요' : '소속을 입력하세요'}
                 />
               </div>
@@ -297,7 +297,7 @@ export default function HomePage() {
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
                   onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                  className="w-full px-3 py-3 pl-10 pr-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="input-field pl-10 pr-10"
                   placeholder="비밀번호를 입력하세요"
                 />
                 <button
@@ -320,7 +320,7 @@ export default function HomePage() {
                     type={showPassword ? 'text' : 'password'}
                     value={formData.confirmPassword}
                     onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    className="w-full px-3 py-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    className="input-field pl-10"
                     placeholder="비밀번호를 다시 입력하세요"
                   />
                 </div>
@@ -356,7 +356,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-xl font-medium hover:from-blue-700 hover:to-purple-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              className="btn-primary w-full flex items-center justify-center space-x-2"
             >
               {isLoading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>}
               <span>{isLoading ? '처리 중...' : (isLogin ? '로그인' : '회원가입')}</span>
@@ -373,4 +373,4 @@ export default function HomePage() {
       </div>
     </div>
   )
-}
+} 

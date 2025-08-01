@@ -2406,4 +2406,604 @@ export async function deleteLocation(id: string): Promise<boolean> {
     return false
   }
   return true
+}
+
+// ===============================
+// 그룹/프로젝트 관리 함수들
+// ===============================
+
+export interface Group {
+  id: string
+  name: string
+  description: string
+  status: 'active' | 'inactive'
+  created_by: string
+  created_at: string
+  updated_at: string
+  memberCount?: number
+}
+
+export interface GroupMembership {
+  id: string
+  group_id: string
+  user_id: string
+  role: 'admin' | 'member'
+  joined_at: string
+}
+
+export interface GroupWorkSettings {
+  id: string
+  group_id: string
+  checkin_deadline_hour: number
+  checkin_deadline_minute: number
+  checkout_start_hour: number
+  checkout_start_minute: number
+}
+
+export interface NotificationData {
+  id: string
+  user_id: string
+  type: string
+  title: string
+  message: string
+  is_read: boolean
+  created_at: string
+}
+
+export interface VacationRequest {
+  id: string
+  user_id: string
+  group_id: string
+  type: string
+  start_date: string
+  end_date: string
+  reason: string
+  status: 'pending' | 'approved' | 'rejected'
+  approved_by?: string
+  approved_at?: string
+  created_at: string
+  updated_at: string
+}
+
+// 그룹 생성
+export async function createGroup(groupData: {
+  name: string
+  description: string
+  status?: 'active' | 'inactive'
+}, creatorId: string): Promise<Group | null> {
+  try {
+    const { data, error } = await supabase
+      .from('groups')
+      .insert({
+        name: groupData.name,
+        description: groupData.description,
+        status: groupData.status || 'active',
+        created_by: creatorId
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('그룹 생성 오류:', error)
+      return null
+    }
+
+    // 생성자를 관리자로 그룹에 추가
+    await addUserToGroup(data.id, creatorId, 'admin')
+
+    return data
+  } catch (error) {
+    console.error('그룹 생성 예외:', error)
+    return null
+  }
+}
+
+// 사용자의 그룹 목록 조회
+export async function getUserGroups(userId: string): Promise<Group[]> {
+  try {
+    const { data, error } = await supabase
+      .from('group_memberships')
+      .select(`
+        groups (
+          id,
+          name,
+          description,
+          status,
+          created_by,
+          created_at,
+          updated_at
+        )
+      `)
+      .eq('user_id', userId)
+
+    if (error) {
+      console.error('사용자 그룹 조회 오류:', error)
+      return []
+    }
+
+    return data?.map(item => item.groups).filter(Boolean) || []
+  } catch (error) {
+    console.error('사용자 그룹 조회 예외:', error)
+    return []
+  }
+}
+
+// 교직원이 관리하는 모든 그룹 조회 (멤버 수 포함)
+export async function getFacultyGroups(facultyId: string): Promise<Group[]> {
+  try {
+    const { data, error } = await supabase
+      .from('groups')
+      .select(`
+        *,
+        group_memberships!inner(count)
+      `)
+      .eq('created_by', facultyId)
+
+    if (error) {
+      console.error('교직원 그룹 조회 오류:', error)
+      return []
+    }
+
+    // 각 그룹의 멤버 수 조회
+    const groupsWithMemberCount = await Promise.all(
+      (data || []).map(async (group) => {
+        const { count } = await supabase
+          .from('group_memberships')
+          .select('*', { count: 'exact', head: true })
+          .eq('group_id', group.id)
+
+        return {
+          ...group,
+          memberCount: count || 0
+        }
+      })
+    )
+
+    return groupsWithMemberCount
+  } catch (error) {
+    console.error('교직원 그룹 조회 예외:', error)
+    return []
+  }
+}
+
+// 그룹 정보 조회
+export async function getGroup(groupId: string): Promise<Group | null> {
+  try {
+    const { data, error } = await supabase
+      .from('groups')
+      .select('*')
+      .eq('id', groupId)
+      .single()
+
+    if (error) {
+      console.error('그룹 조회 오류:', error)
+      return null
+    }
+
+    // 멤버 수 조회
+    const { count } = await supabase
+      .from('group_memberships')
+      .select('*', { count: 'exact', head: true })
+      .eq('group_id', groupId)
+
+    return {
+      ...data,
+      memberCount: count || 0
+    }
+  } catch (error) {
+    console.error('그룹 조회 예외:', error)
+    return null
+  }
+}
+
+// 그룹 수정
+export async function updateGroup(groupId: string, updates: Partial<Group>): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('groups')
+      .update(updates)
+      .eq('id', groupId)
+
+    if (error) {
+      console.error('그룹 수정 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('그룹 수정 예외:', error)
+    return false
+  }
+}
+
+// 그룹 삭제
+export async function deleteGroup(groupId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('groups')
+      .delete()
+      .eq('id', groupId)
+
+    if (error) {
+      console.error('그룹 삭제 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('그룹 삭제 예외:', error)
+    return false
+  }
+}
+
+// 사용자를 그룹에 추가
+export async function addUserToGroup(groupId: string, userId: string, role: 'admin' | 'member' = 'member'): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('group_memberships')
+      .insert({
+        group_id: groupId,
+        user_id: userId,
+        role: role
+      })
+
+    if (error) {
+      console.error('그룹 멤버 추가 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('그룹 멤버 추가 예외:', error)
+    return false
+  }
+}
+
+// 그룹에서 사용자 제거
+export async function removeUserFromGroup(groupId: string, userId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('group_memberships')
+      .delete()
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+
+    if (error) {
+      console.error('그룹 멤버 제거 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('그룹 멤버 제거 예외:', error)
+    return false
+  }
+}
+
+// 그룹 멤버 목록 조회
+export async function getGroupMembers(groupId: string): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('group_memberships')
+      .select(`
+        *,
+        users (
+          id,
+          user_id,
+          name,
+          department,
+          role,
+          position,
+          semester
+        )
+      `)
+      .eq('group_id', groupId)
+
+    if (error) {
+      console.error('그룹 멤버 조회 오류:', error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('그룹 멤버 조회 예외:', error)
+    return []
+  }
+}
+
+// ===============================
+// 알림 관리 함수들
+// ===============================
+
+// 알림 생성
+export async function createNotification(notificationData: {
+  user_id: string
+  type: string
+  title: string
+  message: string
+}): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .insert(notificationData)
+
+    if (error) {
+      console.error('알림 생성 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('알림 생성 예외:', error)
+    return false
+  }
+}
+
+// 사용자 알림 목록 조회
+export async function getUserNotifications(userId: string): Promise<NotificationData[]> {
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('알림 조회 오류:', error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('알림 조회 예외:', error)
+    return []
+  }
+}
+
+// 알림 읽음 처리
+export async function markNotificationAsRead(notificationId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId)
+
+    if (error) {
+      console.error('알림 읽음 처리 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('알림 읽음 처리 예외:', error)
+    return false
+  }
+}
+
+// ===============================
+// 휴가 신청 관리 함수들
+// ===============================
+
+// 휴가 신청 생성
+export async function createVacationRequest(requestData: {
+  user_id: string
+  group_id: string
+  type: string
+  start_date: string
+  end_date: string
+  reason: string
+}): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('vacation_requests')
+      .insert(requestData)
+
+    if (error) {
+      console.error('휴가 신청 생성 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('휴가 신청 생성 예외:', error)
+    return false
+  }
+}
+
+// 사용자의 휴가 신청 목록 조회
+export async function getUserVacationRequests(userId: string): Promise<VacationRequest[]> {
+  try {
+    const { data, error } = await supabase
+      .from('vacation_requests')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('휴가 신청 조회 오류:', error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('휴가 신청 조회 예외:', error)
+    return []
+  }
+}
+
+// 그룹의 대기 중인 휴가 신청 조회
+export async function getPendingVacationRequests(groupId: string): Promise<VacationRequest[]> {
+  try {
+    const { data, error } = await supabase
+      .from('vacation_requests')
+      .select(`
+        *,
+        users (
+          name,
+          user_id,
+          department
+        )
+      `)
+      .eq('group_id', groupId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('대기 중인 휴가 신청 조회 오류:', error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('대기 중인 휴가 신청 조회 예외:', error)
+    return []
+  }
+}
+
+// 휴가 신청 승인/거부
+export async function updateVacationRequestStatus(
+  requestId: string, 
+  status: 'approved' | 'rejected', 
+  approvedBy: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('vacation_requests')
+      .update({
+        status,
+        approved_by: approvedBy,
+        approved_at: toLocalISOString()
+      })
+      .eq('id', requestId)
+
+    if (error) {
+      console.error('휴가 신청 상태 업데이트 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('휴가 신청 상태 업데이트 예외:', error)
+    return false
+  }
+}
+
+// ===============================
+// 그룹별 출퇴근 설정 함수들
+// ===============================
+
+// 그룹 출퇴근 설정 조회
+export async function getGroupWorkSettings(groupId: string): Promise<GroupWorkSettings | null> {
+  try {
+    const { data, error } = await supabase
+      .from('group_work_settings')
+      .select('*')
+      .eq('group_id', groupId)
+      .single()
+
+    if (error && error.code !== 'PGRST116') { // PGRST116은 "no rows returned" 에러
+      console.error('그룹 출퇴근 설정 조회 오류:', error)
+      return null
+    }
+
+    return data
+  } catch (error) {
+    console.error('그룹 출퇴근 설정 조회 예외:', error)
+    return null
+  }
+}
+
+// 그룹 출퇴근 설정 생성/업데이트
+export async function upsertGroupWorkSettings(
+  groupId: string, 
+  settings: {
+    checkin_deadline_hour: number
+    checkin_deadline_minute: number
+    checkout_start_hour: number
+    checkout_start_minute: number
+  }
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('group_work_settings')
+      .upsert({
+        group_id: groupId,
+        ...settings
+      })
+
+    if (error) {
+      console.error('그룹 출퇴근 설정 저장 오류:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('그룹 출퇴근 설정 저장 예외:', error)
+    return false
+  }
+}
+
+// ===============================
+// 그룹별 출석 통계 함수들
+// ===============================
+
+// 그룹의 오늘 출석 현황
+export async function getGroupTodayAttendance(groupId: string): Promise<any> {
+  try {
+    const today = toLocalISOString().split('T')[0]
+    
+    // 그룹 멤버들의 오늘 출석 기록 조회
+    const { data, error } = await supabase
+      .from('attendance_logs')
+      .select(`
+        *,
+        users!inner (
+          id,
+          user_id,
+          name,
+          department,
+          group_memberships!inner (
+            group_id
+          )
+        )
+      `)
+      .gte('scan_time', `${today}T00:00:00`)
+      .lt('scan_time', `${today}T23:59:59`)
+      .eq('users.group_memberships.group_id', groupId)
+
+    if (error) {
+      console.error('그룹 오늘 출석 현황 조회 오류:', error)
+      return {
+        total: 0,
+        present: 0,
+        late: 0,
+        absent: 0,
+        vacation: 0,
+        attendanceRate: 0
+      }
+    }
+
+    // 데이터 처리 및 통계 계산
+    const attendanceData = data || []
+    // TODO: 실제 통계 계산 로직 구현
+    
+    return {
+      total: 28, // 임시 데이터
+      present: 23,
+      late: 3,
+      absent: 2,
+      vacation: 1,
+      attendanceRate: 92.9
+    }
+  } catch (error) {
+    console.error('그룹 오늘 출석 현황 조회 예외:', error)
+    return {
+      total: 0,
+      present: 0,
+      late: 0,
+      absent: 0,
+      vacation: 0,
+      attendanceRate: 0
+    }
+  }
 } 

@@ -1,1129 +1,750 @@
-import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
-  ArrowLeft, 
-  Users, 
-  Calendar, 
-  Clock, 
-  UserCheck, 
-  UserX,
-  BarChart3,
-  Download,
-  Filter,
-  Plane
+  ArrowLeft, Users, Calendar, Clock, UserCheck, UserX, BarChart3,
+  Download, Filter, Plane, TrendingUp, Eye, Award, Target,
+  Zap, Star, Activity, PieChart, LineChart
 } from 'lucide-react'
-import { 
-  getCurrentUser, 
-  hasFacultyAccess,
-  getTodayAttendanceStatus,
-  getWeeklyAttendanceStats,
-  getDailyAttendanceStats,
-  getAttendanceStatusLabel,
-  getAttendanceStatusColor,
-  formatLocalTime,
-  formatLocalDate,
-  formatLocalDateRange,
-  type User,
-  type AttendanceStatus,
-  getAttendanceStatusByDate
-} from '../lib/supabase'
-import { Line } from 'react-chartjs-2'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend
-} from 'chart.js'
 
-interface TodayAttendance {
-  checkin: (User & { checkinTime?: string })[]
-  checkout: (User & { checkinTime?: string, checkoutTime?: string })[]
-  late: (User & { checkinTime?: string })[]
-  early_leave: (User & { checkinTime?: string, checkoutTime?: string })[]
-  absent: User[]
-  vacation: (User & { vacationStartDate?: string, vacationEndDate?: string })[]
-  totalStudents: number
-  checkinCount: number
-  checkoutCount: number
-  lateCount: number
-  earlyLeaveCount: number
-  absentCount: number
-  vacationCount: number
-}
-
-interface WeeklyStats {
-  date: string
-  status: AttendanceStatus | null
-  checkinTime: string | null
-  checkoutTime: string | null
-  student: {
-    name: string
-    user_id: string
-    department: string
-  }
-}
-
-interface DailyStats {
-  [date: string]: {
-    checkin: number
-    checkout: number
-    absent: number
-    vacation: number
-    total: number
-  }
+interface ChartData {
+  name: string
+  value: number
+  color: string
+  icon: React.ReactNode
 }
 
 export default function StatsPage() {
   const navigate = useNavigate()
-  const [, setCurrentUser] = useState<User | null>(null)
-  const [todayAttendance, setTodayAttendance] = useState<TodayAttendance | null>(null)
-  const [weeklyStats, setWeeklyStats] = useState<WeeklyStats[]>([])
-  const [dailyStats, setDailyStats] = useState<DailyStats>({})
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string>('')
-  const [selectedTab, setSelectedTab] = useState<'today' | 'weekly' | 'daily' >('today')
-  const [selectedDepartment, setSelectedDepartment] = useState('all')
-  // const [editingStudent, setEditingStudent] = useState<{studentId: string, currentStatus: AttendanceStatus} | null>(null)
-  const [showDailyDetail, setShowDailyDetail] = useState(false)
-  const [selectedDailyDate, setSelectedDailyDate] = useState<string | null>(null)
-  const [selectedDailyDetail, setSelectedDailyDetail] = useState<TodayAttendance | null>(null)
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'trends' | 'details'>('overview')
+  const [selectedPeriod, setSelectedPeriod] = useState('week')
+  const [selectedWeek, setSelectedWeek] = useState('current')
 
-  // 테스트용 더미 데이터 (weeklyStats가 비어있을 때만 사용)
-  const dummyWeeklyStats: WeeklyStats[] = [
-    { date: '2025-07-09', status: 'checkin', checkinTime: '2025-07-09T09:00:00', checkoutTime: '2025-07-09T18:00:00', student: { name: '홍길동', user_id: '20230001', department: '컴퓨터공학과' } },
-    { date: '2025-07-10', status: 'checkin', checkinTime: '2025-07-10T09:10:00', checkoutTime: '2025-07-10T18:05:00', student: { name: '김철수', user_id: '20230002', department: '전자공학과' } },
-    { date: '2025-07-11', status: 'checkin', checkinTime: '2025-07-11T09:05:00', checkoutTime: '2025-07-11T18:10:00', student: { name: '이영희', user_id: '20230003', department: '기계공학과' } },
-    { date: '2025-07-12', status: 'checkin', checkinTime: '2025-07-12T09:00:00', checkoutTime: '2025-07-12T18:00:00', student: { name: '박민수', user_id: '20230004', department: '컴퓨터공학과' } },
-    { date: '2025-07-13', status: 'checkin', checkinTime: '2025-07-13T09:20:00', checkoutTime: '2025-07-13T18:15:00', student: { name: '최지훈', user_id: '20230005', department: '전자공학과' } },
-    { date: '2025-07-14', status: 'checkin', checkinTime: '2025-07-14T09:00:00', checkoutTime: '2025-07-14T18:00:00', student: { name: '홍길동', user_id: '20230001', department: '컴퓨터공학과' } },
-    { date: '2025-07-15', status: 'checkin', checkinTime: '2025-07-15T09:00:00', checkoutTime: '2025-07-15T18:00:00', student: { name: '김철수', user_id: '20230002', department: '전자공학과' } },
+  // 주차별 데이터
+  const weeklyData = {
+    current: {
+      label: '3주차',
+      dateRange: '1월 15일 ~ 1월 19일',
+      stackData: [
+        { day: '월요일', 출근: 20, 지각: 3, 조기퇴근: 1, 정상퇴근: 4, 결근: 2, 휴가: 1 },
+        { day: '화요일', 출근: 18, 지각: 4, 조기퇴근: 2, 정상퇴근: 3, 결근: 2, 휴가: 2 },
+        { day: '수요일', 출근: 22, 지각: 2, 조기퇴근: 1, 정상퇴근: 4, 결근: 1, 휴가: 1 },
+        { day: '목요일', 출근: 19, 지각: 4, 조기퇴근: 2, 정상퇴근: 3, 결근: 2, 휴가: 1 },
+        { day: '금요일', 출근: 21, 지각: 3, 조기퇴근: 1, 정상퇴근: 4, 결근: 1, 휴가: 1 }
+      ],
+      studentData: [
+        { name: '김학생', id: '2024001', dept: '컴공과', attendance: ['출근', '정상퇴근', '출근', '지각', '출근'], rate: '100%' },
+        { name: '이영희', id: '2024002', dept: '전자과', attendance: ['출근', '출근', '출근', '출근', '출근'], rate: '100%' },
+        { name: '박철수', id: '2024003', dept: '기계과', attendance: ['지각', '출근', '조기퇴근', '출근', '출근'], rate: '100%' },
+        { name: '최민수', id: '2024004', dept: '컴공과', attendance: ['출근', '출근', '출근', '결근', '출근'], rate: '80%' },
+        { name: '정수연', id: '2024005', dept: '전자과', attendance: ['출근', '휴가', '출근', '출근', '출근'], rate: '100%' },
+        { name: '서영진', id: '2024006', dept: '기계과', attendance: ['출근', '출근', '출근', '조기퇴근', '정상퇴근'], rate: '100%' },
+        { name: '황기철', id: '2024007', dept: '컴공과', attendance: ['출근', '출근', '출근', '출근', '출근'], rate: '100%' }
+      ]
+    },
+    last: {
+      label: '2주차',
+      dateRange: '1월 8일 ~ 1월 12일',
+      stackData: [
+        { day: '월요일', 출근: 17, 지각: 4, 조기퇴근: 2, 정상퇴근: 4, 결근: 3, 휴가: 1 },
+        { day: '화요일', 출근: 20, 지각: 2, 조기퇴근: 1, 정상퇴근: 5, 결근: 1, 휴가: 2 },
+        { day: '수요일', 출근: 18, 지각: 6, 조기퇴근: 2, 정상퇴근: 2, 결근: 2, 휴가: 1 },
+        { day: '목요일', 출근: 22, 지각: 1, 조기퇴근: 1, 정상퇴근: 5, 결근: 0, 휴가: 2 },
+        { day: '금요일', 출근: 19, 지각: 3, 조기퇴근: 2, 정상퇴근: 4, 결근: 1, 휴가: 2 }
+      ],
+      studentData: [
+        { name: '김학생', id: '2024001', dept: '컴공과', attendance: ['출근', '출근', '지각', '출근', '출근'], rate: '100%' },
+        { name: '이영희', id: '2024002', dept: '전자과', attendance: ['출근', '출근', '출근', '출근', '출근'], rate: '100%' },
+        { name: '박철수', id: '2024003', dept: '기계과', attendance: ['지각', '출근', '출근', '출근', '지각'], rate: '100%' },
+        { name: '최민수', id: '2024004', dept: '컴공과', attendance: ['결근', '출근', '지각', '출근', '출근'], rate: '80%' },
+        { name: '정수연', id: '2024005', dept: '전자과', attendance: ['출근', '출근', '출근', '출근', '출근'], rate: '100%' },
+        { name: '서영진', id: '2024006', dept: '기계과', attendance: ['출근', '지각', '결근', '출근', '출근'], rate: '80%' },
+        { name: '황기철', id: '2024007', dept: '컴공과', attendance: ['출근', '출근', '출근', '출근', '출근'], rate: '100%' }
+      ]
+    },
+    before: {
+      label: '1주차',
+      dateRange: '1월 1일 ~ 1월 5일',
+      stackData: [
+        { day: '월요일', 출근: 21, 지각: 2, 조기퇴근: 1, 정상퇴근: 5, 결근: 1, 휴가: 1 },
+        { day: '화요일', 출근: 19, 지각: 4, 조기퇴근: 2, 정상퇴근: 3, 결근: 2, 휴가: 1 },
+        { day: '수요일', 출근: 22, 지각: 1, 조기퇴근: 1, 정상퇴근: 5, 결근: 0, 휴가: 2 },
+        { day: '목요일', 출근: 20, 지각: 3, 조기퇴근: 2, 정상퇴근: 4, 결근: 1, 휴가: 1 },
+        { day: '금요일', 출근: 18, 지각: 5, 조기퇴근: 2, 정상퇴근: 3, 결근: 2, 휴가: 1 }
+      ],
+      studentData: [
+        { name: '김학생', id: '2024001', dept: '컴공과', attendance: ['출근', '출근', '출근', '출근', '지각'], rate: '100%' },
+        { name: '이영희', id: '2024002', dept: '전자과', attendance: ['출근', '지각', '출근', '출근', '출근'], rate: '100%' },
+        { name: '박철수', id: '2024003', dept: '기계과', attendance: ['출근', '출근', '출근', '출근', '출근'], rate: '100%' },
+        { name: '최민수', id: '2024004', dept: '컴공과', attendance: ['출근', '결근', '출근', '지각', '출근'], rate: '80%' },
+        { name: '정수연', id: '2024005', dept: '전자과', attendance: ['지각', '출근', '출근', '출근', '출근'], rate: '100%' },
+        { name: '서영진', id: '2024006', dept: '기계과', attendance: ['출근', '출근', '출근', '출근', '지각'], rate: '100%' },
+        { name: '황기철', id: '2024007', dept: '컴공과', attendance: ['출근', '지각', '출근', '출근', '결근'], rate: '80%' }
+      ]
+    }
+  }
+
+  // 차트에 사용할 데이터
+  const chartData: ChartData[] = [
+    { name: '출근', value: 25, color: '#10b981', icon: <UserCheck className="w-6 h-6" /> },
+    { name: '지각', value: 3, color: '#f59e0b', icon: <Clock className="w-6 h-6" /> },
+    { name: '결근', value: 2, color: '#ef4444', icon: <UserX className="w-6 h-6" /> },
+    { name: '휴가', value: 2, color: '#9333ea', icon: <Plane className="w-6 h-6" /> }
   ]
 
-  useEffect(() => {
-    const user = getCurrentUser()
-    if (!user || !hasFacultyAccess(user)) {
-      navigate('/')
-      return
-    }
-    setCurrentUser(user)
-    loadAllStats()
-  }, [navigate])
-
-  useEffect(() => {
-    if (todayAttendance) {
-      console.log('총 인원 todayAttendance.totalStudents:', todayAttendance.totalStudents);
-    }
-  }, [todayAttendance]);
-
-  const loadAllStats = async () => {
-    setIsLoading(true)
-    setError('')
-
-    try {
-      const [todayData, weeklyData, dailyData] = await Promise.all([
-        getTodayAttendanceStatus(),
-        getWeeklyAttendanceStats(),
-        getDailyAttendanceStats(30)
-      ])
-
-      setTodayAttendance(todayData)
-      setWeeklyStats(weeklyData)
-      setDailyStats(dailyData)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '데이터를 불러오는 중 오류가 발생했습니다.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const getDepartments = () => {
-    if (!todayAttendance) return []
-    const allStudents = [
-      ...todayAttendance.checkin, 
-      ...todayAttendance.checkout,
-      ...todayAttendance.late,
-      ...todayAttendance.early_leave,
-      ...todayAttendance.absent, 
-      ...todayAttendance.vacation
-    ]
-    const departments = new Set(allStudents.map((student: User) => student.department))
-    return Array.from(departments)
-  }
-
-  const filterStudentsByDepartment = (students: User[]) => {
-    if (selectedDepartment === 'all') return students
-    return students.filter(student => student.department === selectedDepartment)
-  }
-
-  // const handleStatusChange = async (studentId: string, newStatus: AttendanceStatus) => {
-  //   if (!currentUser) return
-
-  //   try {
-  //     const today = new Date().toISOString().split('T')[0]
-  //     const success = await setStudentAttendanceStatus(studentId, newStatus, today, currentUser)
-      
-  //     if (success) {
-  //       // 데이터 새로고침
-  //       await loadAllStats()
-  //       setEditingStudent(null)
-  //     } else {
-  //       alert('상태 변경에 실패했습니다.')
-  //     }
-  //   } catch (error) {
-  //     console.error('상태 변경 오류:', error)
-  //     alert('상태 변경 중 오류가 발생했습니다.')
-  //   }
-  // }
-
-  // const getStatusIcon = (status: AttendanceStatus) => {
-  //   switch (status) {
-  //     case 'checkin':
-  //       return <UserCheck className="w-5 h-5 text-green-600" />
-  //     case 'checkout':
-  //       return <Clock className="w-5 h-5 text-blue-600" />
-  //     case 'absent':
-  //       return <UserX className="w-5 h-5 text-red-600" />
-  //     case 'vacation':
-  //       return <Plane className="w-5 h-5 text-yellow-600" />
-  //     default:
-  //       return <UserX className="w-5 h-5 text-gray-600" />
-  //   }
-  // }
-
-  const formatTime = (timeString: string | null) => {
-    if (!timeString) return '-'
-    return formatLocalTime(timeString)
-  }
-
-  const formatDate = (dateString: string) => {
-    return formatLocalDate(dateString)
-  }
-
-  const formatDateRange = (startDate: string, endDate: string) => {
-    return formatLocalDateRange(startDate, endDate)
-  }
-
-  const exportToCSV = () => {
-    if (selectedTab === 'today' && todayAttendance) {
-      const csvData = [
-        ['이름', '학번', '학과', '상태', '출근시간', '퇴근시간', '휴가기간'],
-        ...todayAttendance.checkin.map(student => [
-          student.name,
-          student.user_id,
-          student.department,
-          '출근',
-          student.checkinTime ? formatTime(student.checkinTime) : '',
-          '',
-          ''
-        ]),
-        ...todayAttendance.checkout.map(student => [
-          student.name,
-          student.user_id,
-          student.department,
-          '퇴근',
-          student.checkinTime ? formatTime(student.checkinTime) : '',
-          student.checkoutTime ? formatTime(student.checkoutTime) : '',
-          ''
-        ]),
-        ...todayAttendance.late.map(student => [
-          student.name,
-          student.user_id,
-          student.department,
-          '지각',
-          student.checkinTime ? formatTime(student.checkinTime) : '',
-          '',
-          ''
-        ]),
-        ...todayAttendance.early_leave.map(student => [
-          student.name,
-          student.user_id,
-          student.department,
-          '조기퇴근',
-          student.checkinTime ? formatTime(student.checkinTime) : '',
-          student.checkoutTime ? formatTime(student.checkoutTime) : '',
-          ''
-        ]),
-        ...todayAttendance.absent.map(student => [
-          student.name,
-          student.user_id,
-          student.department,
-          '결근',
-          '',
-          '',
-          ''
-        ]),
-        ...todayAttendance.vacation.map(student => [
-          student.name,
-          student.user_id,
-          student.department,
-          '휴가',
-          '',
-          '',
-          student.vacationStartDate && student.vacationEndDate ? 
-            formatDateRange(student.vacationStartDate, student.vacationEndDate) : ''
-        ])
-      ]
-      
-      const csvContent = csvData.map(row => row.join(',')).join('\n')
-      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `출석현황_${new Date().toISOString().split('T')[0]}.csv`
-      link.click()
-    } else if (selectedTab === 'weekly') {
-      const csvData = [
-        ['날짜', '이름', '학번', '학과', '상태', '출근시간', '퇴근시간'],
-        ...weeklyStats.map(stat => [
-          stat.date,
-          stat.student.name,
-          stat.student.user_id,
-          stat.student.department,
-          stat.status ? getAttendanceStatusLabel(stat.status) : '-',
-          formatTime(stat.checkinTime),
-          formatTime(stat.checkoutTime)
-        ])
-      ]
-      
-      const csvContent = csvData.map(row => row.join(',')).join('\n')
-      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `주간출퇴근통계_${new Date().toISOString().split('T')[0]}.csv`
-      link.click()
-    }
-  }
-
-  const renderStudentCard = (student: User & { checkinTime?: string, checkoutTime?: string, vacationStartDate?: string, vacationEndDate?: string }, status: AttendanceStatus) => (
-    <div key={student.id} className="flex items-center justify-between bg-white p-3 rounded-lg">
-      <div className="flex-1">
-        <p className="font-medium text-gray-900">{student.name}</p>
-        <p className="text-sm text-gray-600">{student.user_id} • {student.department}</p>
-        
-        {/* 출퇴근 시간 및 휴가 기간 표시 */}
-        {status === 'checkin' && student.checkinTime && (
-          <p className="text-xs text-green-600 mt-1">
-            출근시간: {formatTime(student.checkinTime)}
-          </p>
-        )}
-        
-        {status === 'late' && student.checkinTime && (
-          <p className="text-xs text-orange-600 mt-1">
-            지각시간: {formatTime(student.checkinTime)}
-          </p>
-        )}
-        
-        {status === 'checkout' && (
-          <div className="text-xs mt-1 flex gap-4">
-            {student.checkinTime && (
-              <span className="text-green-600">출근시간: {formatTime(student.checkinTime)}</span>
-            )}
-            {student.checkoutTime && (
-              <span className="text-blue-600">퇴근시간: {formatTime(student.checkoutTime)}</span>
-            )}
-          </div>
-        )}
-        
-        {status === 'early_leave' && (
-          <div className="text-xs mt-1 flex gap-4">
-            {student.checkinTime && (
-              <span className="text-green-600">출근시간: {formatTime(student.checkinTime)}</span>
-            )}
-          </div>
-        )}
-        
-        {status === 'vacation' && student.vacationStartDate && student.vacationEndDate && (
-          <p className="text-xs text-yellow-600 mt-1">
-            휴가기간: {formatDateRange(student.vacationStartDate, student.vacationEndDate)}
-          </p>
-        )}
-      </div>
-      
-      <div className="flex items-center space-x-2">
-        <span className={`px-2 py-1 text-xs rounded-full ${getAttendanceStatusColor(status)}`}>
-          {getAttendanceStatusLabel(status)}
-        </span>
-      </div>
-    </div>
-  )
-
-  // 일별 출석률 카드 클릭 핸들러
-  const handleDailyCardClick = async (date: string) => {
-    setSelectedDailyDate(date)
-    setShowDailyDetail(true)
-    setSelectedDailyDetail(null)
-    const detail = await getAttendanceStatusByDate(date)
-    setSelectedDailyDetail(detail)
-  }
-
-  // 주간 통계 차트 데이터 생성 함수
-  const getWeeklyChartData = () => {
-    const today = new Date()
-    const days = []
-    const labels = []
-
-    // 오늘 기준 1주일 전부터 오늘까지
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today)
-      date.setDate(today.getDate() - i)
-      const dateStr = date.toISOString().split('T')[0]
-      days.push(dateStr)
-      labels.push(formatLocalDate(dateStr))
-    }
-
-    // 각 날짜별 출근+퇴근 인원 합계 계산
-    const data = days.map(date => {
-      const dayStats = (weeklyStats.length > 0 ? weeklyStats : dummyWeeklyStats)
-        .filter(stat => stat.date === date)
-      const uniqueStudents = new Set(dayStats.map(stat => stat.student.user_id))
-      return uniqueStudents.size
-    })
-
-    // **총 인원 동적 계산**
-    const maxStudents =
-      todayAttendance?.totalStudents && todayAttendance.totalStudents > 0
-        ? todayAttendance.totalStudents
-        : Math.max(...data, 1)
-
-    return {
-      labels,
-      data,
-      maxStudents
-    }
-  }
-
-  // 차트 옵션에서 y축 max를 maxStudents로 설정
-  const getChartOptions = (maxStudents: number) => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        mode: 'index' as const,
-        intersect: false,
-        callbacks: {
-          label: function (context: any) {
-            return `출근+퇴근 인원: ${context.parsed.y}명`
-          }
-        }
-      }
+  // 그룹화된 차트 데이터 (신호등 방식)
+  const groupedStats = [
+    {
+      title: '출근 현황',
+      icon: <UserCheck className="w-5 h-5" />,
+              data: [
+          { name: '출근', value: 25, count: 25, color: '#16a34a' },
+          { name: '지각', value: 3, count: 3, color: '#facc15' }
+        ],
+      total: 28
     },
-    scales: {
-      x: {
-        display: true,
-        title: { display: true, text: '날짜' }
+          {
+        title: '퇴근 현황',
+        icon: <Clock className="w-5 h-5" />,
+        data: [
+          { name: '정상퇴근', value: 20, count: 20, color: '#2563eb' },
+          { name: '조기퇴근', value: 2, count: 2, color: '#f97316' }
+        ],
+        total: 22
       },
-      y: {
-        display: true,
-        title: { display: true, text: '인원수' },
-        beginAtZero: true,
-        max: maxStudents,
-        suggestedMax: maxStudents,
-        grace: 0,
-        ticks: {
-          stepSize: 1,
-          precision: 0,
-          maxTicksLimit: maxStudents + 1,
-          callback: function(tickValue: string | number) {
-            if (typeof tickValue === 'number' && tickValue >= 0 && tickValue <= maxStudents) return tickValue;
-            return '';
-          }
-        }
-      }
+    {
+      title: '결근',
+      icon: <UserX className="w-5 h-5" />,
+      data: [
+        { name: '결근', value: 100, count: 2, color: '#dc2626' }
+      ],
+      total: 2
     },
-    interaction: {
-      mode: 'nearest' as const,
-      axis: 'x',
-      intersect: false
+          {
+        title: '휴가',
+        icon: <Plane className="w-5 h-5" />,
+        data: [
+          { name: '휴가', value: 100, count: 1, color: '#9333ea' }
+        ],
+        total: 1
+      }
+  ]
+
+  const DualCircularProgress = ({ data, size = 120, strokeWidth = 12 }: {
+    data: { name: string; value: number; count: number; color: string }[]
+    size?: number
+    strokeWidth?: number
+  }) => {
+    const radius = (size - strokeWidth) / 2
+    const circumference = 2 * Math.PI * radius
+    
+    let currentOffset = 0
+
+    return (
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg className="transform -rotate-90" width={size} height={size}>
+          {/* 배경 원 */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke="#e5e7eb"
+            strokeWidth={strokeWidth}
+            fill="transparent"
+          />
+          
+          {/* 데이터별 원호 */}
+          {data.map((item, index) => {
+            const strokeDasharray = circumference
+            const percentage = data.length === 1 ? 100 : (item.count / data.reduce((sum, d) => sum + d.count, 0)) * 100
+            const strokeDashoffset = circumference - (percentage / 100) * circumference
+            
+            const segment = (
+              <circle
+                key={index}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                stroke={item.color}
+                strokeWidth={strokeWidth}
+                fill="transparent"
+                strokeDasharray={strokeDasharray}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="round"
+                className="transition-all duration-1000 ease-out"
+                style={{
+                  transform: `rotate(${currentOffset}deg)`,
+                  transformOrigin: `${size / 2}px ${size / 2}px`
+                }}
+              />
+            )
+            
+            currentOffset += percentage * 3.6 // 360도를 100%로 변환
+            return segment
+          })}
+        </svg>
+        
+        {/* 중앙 텍스트 */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-bold text-gray-800">
+                {data.reduce((sum, item) => sum + item.count, 0)}명
+              </span>
+              <span className="text-xs text-gray-500">총합</span>
+        </div>
+      </div>
+    )
+  }
+
+  // 스택 바 차트 컴포넌트 (세로형)
+  const StackedBarChart = ({ data }: { data: any[] }) => {
+    const maxTotal = Math.max(...data.map(d => d.출근 + d.지각 + d.조기퇴근 + d.정상퇴근 + d.결근 + d.휴가))
+    
+    return (
+      <div className="flex justify-center items-end space-x-4 h-80">
+        {data.map((day, index) => {
+          const total = day.출근 + day.지각 + day.조기퇴근 + day.정상퇴근 + day.결근 + day.휴가
+          const barHeight = 250 // 최대 높이
+          
+          // 각 섹션의 높이 계산
+          const heights = {
+            출근: (day.출근 / maxTotal) * barHeight,
+            지각: (day.지각 / maxTotal) * barHeight,
+            조기퇴근: (day.조기퇴근 / maxTotal) * barHeight,
+            정상퇴근: (day.정상퇴근 / maxTotal) * barHeight,
+            결근: (day.결근 / maxTotal) * barHeight,
+            휴가: (day.휴가 / maxTotal) * barHeight
+          }
+          
+          return (
+            <div key={index} className="flex flex-col items-center space-y-2">
+              <div className="text-sm text-gray-500">총 {total}명</div>
+              
+              <div 
+                className="relative w-16 bg-transparent rounded-lg overflow-hidden flex flex-col justify-end"
+                style={{ height: `${barHeight}px` }}
+              >
+                {/* 결근 (맨 위) */}
+                <div 
+                  className="w-full bg-red-300 flex items-center justify-center text-xs font-medium text-gray-700 transition-all duration-300"
+                  style={{ height: `${heights.결근}px` }}
+                >
+                  {day.결근 > 0 && heights.결근 > 20 && day.결근}
+                </div>
+                
+                {/* 휴가 */}
+                <div 
+                  className="w-full bg-purple-300 flex items-center justify-center text-xs font-medium text-gray-700 transition-all duration-300"
+                  style={{ height: `${heights.휴가}px` }}
+                >
+                  {day.휴가 > 0 && heights.휴가 > 20 && day.휴가}
+                </div>
+                
+                {/* 조기퇴근 */}
+                <div 
+                  className="w-full bg-orange-300 flex items-center justify-center text-xs font-medium text-gray-700 transition-all duration-300"
+                  style={{ height: `${heights.조기퇴근}px` }}
+                >
+                  {day.조기퇴근 > 0 && heights.조기퇴근 > 20 && day.조기퇴근}
+                </div>
+                
+                {/* 정상퇴근 */}
+                <div 
+                  className="w-full bg-blue-300 flex items-center justify-center text-xs font-medium text-gray-700 transition-all duration-300"
+                  style={{ height: `${heights.정상퇴근}px` }}
+                >
+                  {day.정상퇴근 > 0 && heights.정상퇴근 > 20 && day.정상퇴근}
+                </div>
+                
+                {/* 지각 */}
+                <div 
+                  className="w-full bg-yellow-300 flex items-center justify-center text-xs font-medium text-gray-700 transition-all duration-300"
+                  style={{ height: `${heights.지각}px` }}
+                >
+                  {day.지각 > 0 && heights.지각 > 20 && day.지각}
+                </div>
+                
+                {/* 출근 (맨 아래) */}
+                <div 
+                  className="w-full bg-green-300 flex items-center justify-center text-xs font-medium text-gray-700 transition-all duration-300"
+                  style={{ height: `${heights.출근}px` }}
+                >
+                  {day.출근 > 0 && heights.출근 > 20 && day.출근}
+                </div>
+              </div>
+              
+              <span className="text-sm font-medium text-gray-700">{day.day}</span>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // 개별 학생 출석 현황
+  const StudentAttendanceGrid = ({ students }: { students: any[] }) => {
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case '출근': return 'bg-green-500'
+        case '지각': return 'bg-yellow-400'
+        case '정상퇴근': return 'bg-green-500'
+        case '조기퇴근': return 'bg-blue-500'
+        case '휴가': return 'bg-purple-500'
+        case '결근': return 'bg-red-500'
+        default: return 'bg-gray-300'
+      }
     }
-  })
 
-  ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
+    const getStatusEmoji = (status: string) => {
+      switch (status) {
+        case '출근': return '✓'
+        case '지각': return '!'
+        case '정상퇴근': return '✓'
+        case '조기퇴근': return '↗'
+        case '휴가': return 'V'
+        case '결근': return '✗'
+        default: return '?'
+      }
+    }
 
-  if (isLoading) {
+    const days = ['월', '화', '수', '목', '금']
+
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">통계 데이터를 불러오는 중...</p>
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        {/* 헤더 (학생 정보, 요일, 출석률) */}
+        <div className="bg-gray-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-200">
+          <div className="grid grid-cols-12 gap-1 sm:gap-2 items-center">
+            <div className="col-span-4 sm:col-span-3">
+              <span className="text-xs sm:text-sm font-medium text-gray-700">학생 정보</span>
+            </div>
+            <div className="col-span-6 sm:col-span-7 grid grid-cols-5 gap-1 sm:gap-2">
+              <div className="text-center">
+                <span className="text-xs sm:text-sm font-medium text-gray-700">월</span>
+              </div>
+              <div className="text-center">
+                <span className="text-xs sm:text-sm font-medium text-gray-700">화</span>
+              </div>
+              <div className="text-center">
+                <span className="text-xs sm:text-sm font-medium text-gray-700">수</span>
+              </div>
+              <div className="text-center">
+                <span className="text-xs sm:text-sm font-medium text-gray-700">목</span>
+              </div>
+              <div className="text-center">
+                <span className="text-xs sm:text-sm font-medium text-gray-700">금</span>
+              </div>
+            </div>
+            <div className="col-span-2 text-center">
+              <span className="text-xs sm:text-sm font-medium text-gray-700">출석률</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 학생 목록 */}
+        <div className="divide-y divide-gray-100">
+          {students.map((student, index) => (
+            <div key={index} className="px-3 sm:px-4 py-2 sm:py-3 hover:bg-gray-50 transition-colors">
+              <div className="grid grid-cols-12 gap-1 sm:gap-2 items-center">
+                {/* 학생 정보 */}
+                <div className="col-span-4 sm:col-span-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-xs sm:text-sm font-medium text-gray-900 truncate">{student.name}</h4>
+                      <div className="hidden sm:flex items-center space-x-1 text-xs text-gray-500">
+                        <span className="truncate">{student.id}</span>
+                        <span>•</span>
+                        <span className="truncate">{student.dept}</span>
+                      </div>
+                    </div>
+                    <div className="sm:hidden">
+                      <p className="text-xs text-gray-500 truncate">{student.id} • {student.dept}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 출석 상태 (5일) - 아이콘만 */}
+                <div className="col-span-6 sm:col-span-7 grid grid-cols-5 gap-1 sm:gap-2">
+                  {student.attendance.map((status: string, dayIndex: number) => (
+                    <div key={dayIndex} className="flex justify-center">
+                      <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg ${getStatusColor(status)} flex items-center justify-center text-white text-xs font-medium shadow-sm`}>
+                        <span className="hidden sm:inline">{getStatusEmoji(status)}</span>
+                        <span className="sm:hidden text-xs">
+                          {status === '출근' ? '✓' : status === '지각' ? '!' : status === '결근' ? '✗' : status === '휴가' ? 'V' : status === '조기퇴근' ? '↗' : status === '정상퇴근' ? '✓' : '?'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 출석률 */}
+                <div className="col-span-2 text-center">
+                  <span className={`text-xs sm:text-sm font-bold ${
+                    parseFloat(student.rate.replace('%', '')) >= 90 
+                      ? 'text-green-600' 
+                      : parseFloat(student.rate.replace('%', '')) >= 80 
+                        ? 'text-yellow-600' 
+                        : 'text-red-600'
+                  }`}>
+                    {student.rate}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 범례 */}
+        <div className="bg-gray-50 px-3 sm:px-4 py-3 border-t border-gray-200">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 text-xs">
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 bg-green-500 rounded"></div>
+              <span className="text-gray-600">출근</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 bg-yellow-400 rounded"></div>
+              <span className="text-gray-600">지각</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 bg-blue-500 rounded"></div>
+              <span className="text-gray-600">조기퇴근</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 bg-purple-500 rounded"></div>
+              <span className="text-gray-600">휴가</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 bg-red-500 rounded"></div>
+              <span className="text-gray-600">결근</span>
+            </div>
+          </div>
         </div>
       </div>
     )
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-500 text-xl mb-4">오류 발생</div>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <button 
-            onClick={loadAllStats}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          >
-            다시 시도
-          </button>
-        </div>
-      </div>
-    )
-  }
+  const currentData = weeklyData[selectedWeek as keyof typeof weeklyData]
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+      <div className="bg-white shadow-sm border-b sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+        <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Link to="/attendance" className="text-gray-600 hover:text-gray-800">
-                <ArrowLeft className="w-6 h-6" />
-              </Link>
-              <h1 className="text-2xl font-bold text-gray-900">출퇴근 통계</h1>
+              <button 
+                onClick={() => navigate(-1)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+            </button>
+              <h1 className="text-xl font-bold text-gray-900">출석 현황</h1>
             </div>
             
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Filter className="w-5 h-5 text-gray-500" />
-                <select
-                  value={selectedDepartment}
-                  onChange={(e) => setSelectedDepartment(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="all">전체 학과</option>
-                  {getDepartments().map(dept => (
-                    <option key={dept} value={dept}>{dept}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <button
-                onClick={exportToCSV}
-                className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
-              >
-                <Download className="w-4 h-4" />
-                <span>내보내기</span>
+          <div className="flex items-center space-x-2">
+              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <Download className="w-5 h-5 text-gray-600" />
               </button>
+              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <Filter className="w-5 h-5 text-gray-600" />
+            </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 탭 네비게이션 */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="bg-white rounded-lg shadow-sm">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6">
-              <button
-                onClick={() => setSelectedTab('today')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  selectedTab === 'today'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center space-x-2">
-                  <UserCheck className="w-4 h-4" />
-                  <span>오늘 현황</span>
-                </div>
-              </button>
-              
-              <button
-                onClick={() => setSelectedTab('weekly')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  selectedTab === 'weekly'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center space-x-2">
-                  <Calendar className="w-4 h-4" />
-                  <span>주간 통계</span>
-                </div>
-              </button>
-              
-              <button
-                onClick={() => setSelectedTab('daily')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  selectedTab === 'daily'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center space-x-2">
-                  <BarChart3 className="w-4 h-4" />
-                  <span>일별 통계</span>
-                </div>
-              </button>
-            </nav>
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* 탭 네비게이션 */}
+        <div className="bg-white rounded-2xl shadow-sm">
+          <div className="flex">
+            <button
+              onClick={() => setSelectedTab('overview')}
+              className={`flex-1 px-6 py-4 text-center flex items-center justify-center space-x-2 transition-colors ${
+                selectedTab === 'overview'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+              }`}
+            >
+              <PieChart className="w-5 h-5" />
+              <span className="font-medium">현황</span>
+            </button>
+            <button
+              onClick={() => setSelectedTab('trends')}
+              className={`flex-1 px-6 py-4 text-center flex items-center justify-center space-x-2 transition-colors ${
+                selectedTab === 'trends'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+              }`}
+            >
+              <TrendingUp className="w-5 h-5" />
+              <span className="font-medium">추이</span>
+            </button>
+            <button
+              onClick={() => setSelectedTab('details')}
+              className={`flex-1 px-6 py-4 text-center flex items-center justify-center space-x-2 transition-colors ${
+                selectedTab === 'details'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+              }`}
+            >
+              <Eye className="w-5 h-5" />
+              <span className="font-medium">상세</span>
+            </button>
           </div>
+        </div>
 
-          {/* 탭 콘텐츠 */}
-          <div className="p-6">
-            {selectedTab === 'today' && todayAttendance && (
-              <div>
-                {/* 전체 출석률 */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-6 text-center">전체 출석률</h3>
-                  
-                  <div className="flex flex-col lg:flex-row items-center justify-center space-y-6 lg:space-y-0 lg:space-x-12">
-                    {/* 원형 게이지 */}
-                    <div className="relative">
-                      <svg width="200" height="200" className="transform -rotate-90">
-                        {/* 배경 원 */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#e5e7eb"
-                          strokeWidth="12"
-                          fill="transparent"
-                        />
-                        
-                        {/* 출근 (정상 출근) */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#059669"
-                          strokeWidth="12"
-                          fill="transparent"
-                          strokeDasharray={`${(todayAttendance.checkinCount / todayAttendance.totalStudents) * 565.5} 565.5`}
-                          strokeDashoffset="0"
-                          strokeLinecap="round"
-                          className="transition-all duration-1000 ease-out"
-                        />
-                        
-                        {/* 지각 */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#d97706"
-                          strokeWidth="12"
-                          fill="transparent"
-                          strokeDasharray={`${(todayAttendance.lateCount / todayAttendance.totalStudents) * 565.5} 565.5`}
-                          strokeDashoffset={`-${(todayAttendance.checkinCount / todayAttendance.totalStudents) * 565.5}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-1000 ease-out"
-                        />
-                        
-                        {/* 퇴근 */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#2563eb"
-                          strokeWidth="12"
-                          fill="transparent"
-                          strokeDasharray={`${(todayAttendance.checkoutCount / todayAttendance.totalStudents) * 565.5} 565.5`}
-                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount) / todayAttendance.totalStudents) * 565.5}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-1000 ease-out"
-                        />
-                        
-                        {/* 조기퇴근 */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#7c3aed"
-                          strokeWidth="12"
-                          fill="transparent"
-                          strokeDasharray={`${(todayAttendance.earlyLeaveCount / todayAttendance.totalStudents) * 565.5} 565.5`}
-                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount + todayAttendance.checkoutCount) / todayAttendance.totalStudents) * 565.5}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-1000 ease-out"
-                        />
-                        
-                        {/* 휴가 */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#eab308"
-                          strokeWidth="12"
-                          fill="transparent"
-                          strokeDasharray={`${(todayAttendance.vacationCount / todayAttendance.totalStudents) * 565.5} 565.5`}
-                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount + todayAttendance.checkoutCount + todayAttendance.earlyLeaveCount) / todayAttendance.totalStudents) * 565.5}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-1000 ease-out"
-                        />
-                        
-                        {/* 결근 */}
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="90"
-                          stroke="#dc2626"
-                          strokeWidth="12"
-                          fill="transparent"
-                          strokeDasharray={`${(todayAttendance.absentCount / todayAttendance.totalStudents) * 565.5} 565.5`}
-                          strokeDashoffset={`-${((todayAttendance.checkinCount + todayAttendance.lateCount + todayAttendance.checkoutCount + todayAttendance.earlyLeaveCount + todayAttendance.vacationCount) / todayAttendance.totalStudents) * 565.5}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-1000 ease-out"
-                        />
-                      </svg>
-                      
-                      {/* 중앙 텍스트 */}
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-3xl font-bold text-gray-800">{todayAttendance.totalStudents}명</span>
-                        <span className="text-sm text-gray-600">전체 학생</span>
-                      </div>
-                    </div>
+        {/* 현황 탭 */}
+        {selectedTab === 'overview' && (
+          <div className="space-y-6">
+            {/* 전체 출석률 - 통합 차트 */}
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-6 text-center">
+                전체 출석률
+              </h3>
+              
+              <div className="flex flex-col lg:flex-row items-center justify-center space-y-6 lg:space-y-0 lg:space-x-8 px-4">
+                {/* 통합 원형 게이지 */}
+                <div className="relative flex-shrink-0">
+                  <svg width="180" height="180" className="transform -rotate-90">
+                    {/* 배경 원 */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#e5e7eb"
+                      strokeWidth="10"
+                      fill="transparent"
+                    />
                     
-                    {/* 범례 */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 bg-green-600 rounded-full"></div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">출근</p>
-                          <p className="text-lg font-bold text-green-600">{todayAttendance.checkinCount}명</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 bg-yellow-600 rounded-full"></div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">지각</p>
-                          <p className="text-lg font-bold text-yellow-600">{todayAttendance.lateCount}명</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 bg-blue-600 rounded-full"></div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">퇴근</p>
-                          <p className="text-lg font-bold text-blue-600">{todayAttendance.checkoutCount}명</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 bg-purple-600 rounded-full"></div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">조기퇴근</p>
-                          <p className="text-lg font-bold text-purple-600">{todayAttendance.earlyLeaveCount}명</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">휴가</p>
-                          <p className="text-lg font-bold text-yellow-500">{todayAttendance.vacationCount}명</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 bg-red-600 rounded-full"></div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">결근</p>
-                          <p className="text-lg font-bold text-red-600">{todayAttendance.absentCount}명</p>
-                        </div>
-                      </div>
-                    </div>
+                    {/* 출근 (정상 출근) */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#86efac"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={`${(25 / 53) * 471.2} 471.2`}
+                      strokeDashoffset="0"
+                      className="transition-all duration-1000 ease-out"
+                    />
+                    
+                    {/* 지각 */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#fde047"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={`${(3 / 53) * 471.2} 471.2`}
+                      strokeDashoffset={`-${(25 / 53) * 471.2}`}
+                      className="transition-all duration-1000 ease-out"
+                    />
+                    
+                    {/* 정상퇴근 */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#93c5fd"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={`${(20 / 53) * 471.2} 471.2`}
+                      strokeDashoffset={`-${((25 + 3) / 53) * 471.2}`}
+                      className="transition-all duration-1000 ease-out"
+                    />
+                    
+                    {/* 조기퇴근 */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#fdba74"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={`${(2 / 53) * 471.2} 471.2`}
+                      strokeDashoffset={`-${((25 + 3 + 20) / 53) * 471.2}`}
+                      className="transition-all duration-1000 ease-out"
+                    />
+                    
+                    {/* 결근 */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#fca5a5"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={`${(2 / 53) * 471.2} 471.2`}
+                      strokeDashoffset={`-${((25 + 3 + 20 + 2) / 53) * 471.2}`}
+                      className="transition-all duration-1000 ease-out"
+                    />
+                    
+                    {/* 휴가 */}
+                    <circle
+                      cx="90"
+                      cy="90"
+                      r="75"
+                      stroke="#c4b5fd"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={`${(1 / 53) * 471.2} 471.2`}
+                      strokeDashoffset={`-${((25 + 3 + 20 + 2 + 2) / 53) * 471.2}`}
+                      className="transition-all duration-1000 ease-out"
+                    />
+                  </svg>
+                  
+                  {/* 중앙 텍스트 */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-3xl font-bold text-gray-800">53명</span>
+                    <span className="text-sm text-gray-600">전체 학생</span>
                   </div>
-                </div>
-
-                {/* 상태별 학생 목록 */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <UserCheck className="w-5 h-5 text-green-600 mr-2" />
-                      출근 학생 ({filterStudentsByDepartment(todayAttendance.checkin).length}명)
-                    </h3>
-                    <div className="bg-green-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {filterStudentsByDepartment(todayAttendance.checkin).length > 0 ? (
-                        <div className="space-y-2">
-                          {filterStudentsByDepartment(todayAttendance.checkin).map(student => 
-                            renderStudentCard(student, 'checkin')
-                          )}
                         </div>
-                      ) : (
-                        <p className="text-gray-500 text-center py-4">해당 조건의 출근 학생이 없습니다.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <Clock className="w-5 h-5 text-orange-600 mr-2" />
-                      지각 학생 ({filterStudentsByDepartment(todayAttendance.late).length}명)
-                    </h3>
-                    <div className="bg-orange-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {filterStudentsByDepartment(todayAttendance.late).length > 0 ? (
-                        <div className="space-y-2">
-                          {filterStudentsByDepartment(todayAttendance.late).map(student => 
-                            renderStudentCard(student, 'late')
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-gray-500 text-center py-4">해당 조건의 지각 학생이 없습니다.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <Clock className="w-5 h-5 text-blue-600 mr-2" />
-                      퇴근 학생 ({filterStudentsByDepartment(todayAttendance.checkout).length}명)
-                    </h3>
-                    <div className="bg-blue-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {filterStudentsByDepartment(todayAttendance.checkout).length > 0 ? (
-                        <div className="space-y-2">
-                          {filterStudentsByDepartment(todayAttendance.checkout).map(student => 
-                            renderStudentCard(student, 'checkout')
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-gray-500 text-center py-4">해당 조건의 퇴근 학생이 없습니다.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <Clock className="w-5 h-5 text-purple-600 mr-2" />
-                      조기퇴근 학생 ({filterStudentsByDepartment(todayAttendance.early_leave).length}명)
-                    </h3>
-                    <div className="bg-purple-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {filterStudentsByDepartment(todayAttendance.early_leave).length > 0 ? (
-                        <div className="space-y-2">
-                          {filterStudentsByDepartment(todayAttendance.early_leave).map(student => 
-                            renderStudentCard(student, 'early_leave')
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-gray-500 text-center py-4">해당 조건의 조기퇴근 학생이 없습니다.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <UserX className="w-5 h-5 text-red-600 mr-2" />
-                      결근 학생 ({filterStudentsByDepartment(todayAttendance.absent).length}명)
-                    </h3>
-                    <div className="bg-red-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {filterStudentsByDepartment(todayAttendance.absent).length > 0 ? (
-                        <div className="space-y-2">
-                          {filterStudentsByDepartment(todayAttendance.absent).map(student => 
-                            renderStudentCard(student, 'absent')
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-gray-500 text-center py-4">해당 조건의 결근 학생이 없습니다.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <Plane className="w-5 h-5 text-yellow-600 mr-2" />
-                      휴가 학생 ({filterStudentsByDepartment(todayAttendance.vacation).length}명)
-                    </h3>
-                    <div className="bg-yellow-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {filterStudentsByDepartment(todayAttendance.vacation).length > 0 ? (
-                        <div className="space-y-2">
-                          {filterStudentsByDepartment(todayAttendance.vacation).map(student => 
-                            renderStudentCard(student, 'vacation')
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-gray-500 text-center py-4">해당 조건의 휴가 학생이 없습니다.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {selectedTab === 'weekly' && (
-              <div>
-                {/* 주간 출근+퇴근 인원 차트 추가 */}
-                <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">주간 출근+퇴근 인원 통계</h3>
-                    <div className="text-sm text-gray-500">
-                      {formatDateRange(
-                        new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                        new Date().toISOString().split('T')[0]
-                      )}
-                    </div>
-                  </div>
-                  <div className="h-80">
-                    {(() => {
-                      const chartData = getWeeklyChartData()
-                      return (
-                        <Line
-                          data={{
-                            labels: chartData.labels,
-                            datasets: [
-                              {
-                                label: '출근+퇴근 인원',
-                                data: chartData.data,
-                                borderColor: 'rgb(234, 179, 8)',
-                                backgroundColor: 'rgba(234, 179, 8, 0.1)',
-                                borderWidth: 3,
-                                fill: true,
-                                tension: 0.4,
-                                pointBackgroundColor: 'rgb(234, 179, 8)',
-                                pointBorderColor: '#fff',
-                                pointBorderWidth: 2,
-                                pointRadius: 6,
-                                pointHoverRadius: 8
-                              }
-                            ]
-                          }}
-                          options={{
-                            ...getChartOptions(chartData.maxStudents),
-                            interaction: {
-                              mode: 'nearest' as const,
-                              axis: 'x',
-                              intersect: false
-                            }
-                          }}
-                        />
-                      )
-                    })()}
-                  </div>
-                  <div className="mt-4 text-center text-sm text-gray-600">
-                    총 인원: {getWeeklyChartData().maxStudents}명 기준
-                  </div>
-                </div>
-                {/* 표 */}
-                <div className="bg-white rounded shadow p-4">
-                  <h2 className="text-lg font-bold mb-2">근무자별 근무 내역</h2>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border text-sm">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border px-2 py-1">이름</th>
-                          <th className="border px-2 py-1">부서</th>
-                          <th className="border px-2 py-1">직급</th>
-                          <th className="border px-2 py-1">근무일수</th>
-                          <th className="border px-2 py-1">총 근무시간</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {/* 예시 데이터: weeklyStats를 그룹화하여 이름별로 근무일수/근무시간 계산 */}
-                        {Object.entries(
-                          (weeklyStats.length > 0 ? weeklyStats : dummyWeeklyStats).reduce((acc: Record<string, { name: string, department: string, position: string, days: number, totalTime: number }>, stat: WeeklyStats) => {
-                            const key = stat.student.name + stat.student.user_id
-                            if (!acc[key]) {
-                              acc[key] = {
-                                name: stat.student.name,
-                                department: stat.student.department,
-                                position: '직원', // 실제 데이터에 맞게 수정 필요
-                                days: 0,
-                                totalTime: 0,
-                              }
-                            }
-                            acc[key].days += 1
-                            // 근무시간 계산 예시(실제 데이터에 맞게 수정 필요)
-                            if (stat.checkinTime && stat.checkoutTime) {
-                              const inTime = new Date(stat.checkinTime)
-                              const outTime = new Date(stat.checkoutTime)
-                              const diff = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
-                              acc[key].totalTime += diff > 0 ? diff : 0
-                            }
-                            return acc
-                          }, {} as Record<string, { name: string, department: string, position: string, days: number, totalTime: number }>))
-                          .map(([key, row]) => {
-                            const r = row as { name: string, department: string, position: string, days: number, totalTime: number }
-                            return (
-                              <tr key={key}>
-                                <td className="border px-2 py-1">{r.name}</td>
-                                <td className="border px-2 py-1">{r.department}</td>
-                                <td className="border px-2 py-1">{r.position}</td>
-                                <td className="border px-2 py-1">{r.days}</td>
-                                <td className="border px-2 py-1">{r.totalTime.toFixed(2)}시간</td>
-                              </tr>
-                            )
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {selectedTab === 'daily' && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">일별 출석률 통계 (최근 30일)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Object.entries(dailyStats)
-                    .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
-                    .slice(0, 30)
-                    .map(([date, stats]) => {
-                      const totalPresent = stats.checkin + stats.checkout
-                      const attendanceRate = stats.total > 0 ? (totalPresent / stats.total * 100) : 0
-                      return (
-                        <div
-                          key={date}
-                          className="bg-white border-4 border-red-500 rounded-lg p-4 cursor-pointer hover:shadow-lg transition-shadow select-none"
-                          onClick={() => { alert('카드 클릭됨: ' + date); console.log('카드 클릭됨', date); handleDailyCardClick(date); }}
-                          style={{ width: '100%', height: '100%', background: 'yellow' }}
-                          tabIndex={0}
-                          role="button"
-                          aria-label={`${formatDate(date)} 출석 상세 보기`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-medium text-gray-900">{formatDate(date)}</h4>
-                            <span className={`text-sm font-semibold ${
-                              attendanceRate >= 80 ? 'text-green-600' :
-                              attendanceRate >= 60 ? 'text-yellow-600' : 'text-red-600'
-                            }`}>
-                              {attendanceRate.toFixed(1)}%
-                            </span>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">출근</span>
-                              <span className="text-green-600 font-medium">{stats.checkin}명</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">퇴근</span>
-                              <span className="text-blue-600 font-medium">{stats.checkout}명</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">결근</span>
-                              <span className="text-red-600 font-medium">{stats.absent}명</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">휴가</span>
-                              <span className="text-yellow-600 font-medium">{stats.vacation}명</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">전체</span>
-                              <span className="text-gray-900 font-medium">{stats.total}명</span>
-                            </div>
-                          </div>
-                          <div className="mt-3">
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div 
-                                className={`h-2 rounded-full ${
-                                  attendanceRate >= 80 ? 'bg-green-500' :
-                                  attendanceRate >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                                }`}
-                                style={{ width: `${attendanceRate}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                </div>
                 
-                {Object.keys(dailyStats).length === 0 && (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">일별 통계 데이터가 없습니다.</p>
+                {/* 범례 */}
+                <div className="grid grid-cols-2 gap-3 w-full max-w-xs">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-green-300 rounded-full flex-shrink-0"></div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700">출근</p>
+                      <p className="text-sm font-bold text-green-600">25명</p>
+                    </div>
                   </div>
-                )}
+                  
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-yellow-300 rounded-full flex-shrink-0"></div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700">지각</p>
+                      <p className="text-sm font-bold text-yellow-600">3명</p>
               </div>
-            )}
+            </div>
+
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-blue-300 rounded-full flex-shrink-0"></div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700">정상퇴근</p>
+                      <p className="text-sm font-bold text-blue-600">20명</p>
+                </div>
+              </div>
+              
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-orange-300 rounded-full flex-shrink-0"></div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700">조기퇴근</p>
+                      <p className="text-sm font-bold text-orange-600">2명</p>
+                </div>
+                </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-red-300 rounded-full flex-shrink-0"></div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700">결근</p>
+                      <p className="text-sm font-bold text-red-600">2명</p>
+                </div>
+              </div>
+              
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-purple-300 rounded-full flex-shrink-0"></div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700">휴가</p>
+                      <p className="text-sm font-bold text-purple-600">1명</p>
+                    </div>
+                </div>
+                </div>
+              </div>
+            </div>
+
           </div>
-        </div>
+        )}
+
+        {/* 추이 탭 */}
+        {selectedTab === 'trends' && (
+          <div className="space-y-6">
+            {/* 주차 선택 */}
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-800">
+                  기간 선택
+                </h3>
+                <select
+                  value={selectedWeek}
+                  onChange={(e) => setSelectedWeek(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="current">3주차</option>
+                  <option value="last">2주차</option>
+                  <option value="before">1주차</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 주간 상태별 출석 현황 */}
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-6">
+                {currentData.label} 출석 현황 (명 단위)
+              </h3>
+              
+              {/* 범례 */}
+              <div className="flex flex-wrap gap-4 mb-6 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-green-300 rounded"></div>
+                  <span>출근</span>
+                  </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-yellow-300 rounded"></div>
+                  <span>지각</span>
+              </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-blue-300 rounded"></div>
+                  <span>정상퇴근</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-orange-300 rounded"></div>
+                  <span>조기퇴근</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-purple-300 rounded"></div>
+                  <span>휴가</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-red-300 rounded"></div>
+                  <span>결근</span>
+                </div>
+              </div>
+              
+              <StackedBarChart data={currentData.stackData} />
+            </div>
+          </div>
+        )}
+
+        {/* 상세 탭 */}
+        {selectedTab === 'details' && (
+          <div className="space-y-4 sm:space-y-6">
+            {/* 주차 선택 */}
+            <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm p-4">
+              <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    학생별 출석 현황
+                  </h3>
+                </div>
+                <div className="w-full sm:w-auto">
+                  <select
+                    value={selectedWeek}
+                    onChange={(e) => setSelectedWeek(e.target.value)}
+                    className="w-full sm:w-auto border border-gray-200 rounded-lg px-3 py-2 sm:px-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  >
+                    <option value="current">3주차 (1월 15일 ~ 1월 19일)</option>
+                    <option value="last">2주차 (1월 8일 ~ 1월 12일)</option>
+                    <option value="before">1주차 (1월 1일 ~ 1월 5일)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 학생별 상세 현황 */}
+            <StudentAttendanceGrid students={currentData.studentData} />
+          </div>
+        )}
       </div>
-      {/* 팝업 */}
-      {showDailyDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-8 relative max-h-[90vh] overflow-y-auto">
-            <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-2xl" onClick={() => setShowDailyDetail(false)}>&times;</button>
-            <h2 className="text-2xl font-bold mb-4">{selectedDailyDate ? formatDate(selectedDailyDate) : ''} 학생 출결 현황</h2>
-            {!selectedDailyDetail && (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <span className="ml-4 text-blue-600 font-medium">불러오는 중...</span>
-              </div>
-            )}
-            {selectedDailyDetail && (
-              <div className="space-y-8">
-                {/* 출근 */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center"><UserCheck className="w-5 h-5 text-green-600 mr-2" />출근 학생 ({selectedDailyDetail.checkin.length}명)</h3>
-                  <div className="bg-green-50 rounded-lg p-4 max-h-48 overflow-y-auto">
-                    {selectedDailyDetail.checkin.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedDailyDetail.checkin.map(student => renderStudentCard(student, 'checkin'))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-2">출근 학생이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-                {/* 지각 */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center"><Clock className="w-5 h-5 text-orange-600 mr-2" />지각 학생 ({selectedDailyDetail.late.length}명)</h3>
-                  <div className="bg-orange-50 rounded-lg p-4 max-h-48 overflow-y-auto">
-                    {selectedDailyDetail.late.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedDailyDetail.late.map(student => renderStudentCard(student, 'late'))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-2">지각 학생이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-                {/* 퇴근 */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center"><Clock className="w-5 h-5 text-blue-600 mr-2" />퇴근 학생 ({selectedDailyDetail.checkout.length}명)</h3>
-                  <div className="bg-blue-50 rounded-lg p-4 max-h-48 overflow-y-auto">
-                    {selectedDailyDetail.checkout.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedDailyDetail.checkout.map(student => renderStudentCard(student, 'checkout'))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-2">퇴근 학생이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-                {/* 조기퇴근 */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center"><Clock className="w-5 h-5 text-purple-600 mr-2" />조기퇴근 학생 ({selectedDailyDetail.early_leave.length}명)</h3>
-                  <div className="bg-purple-50 rounded-lg p-4 max-h-48 overflow-y-auto">
-                    {selectedDailyDetail.early_leave.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedDailyDetail.early_leave.map(student => renderStudentCard(student, 'early_leave'))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-2">조기퇴근 학생이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-                {/* 결근 */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center"><UserX className="w-5 h-5 text-red-600 mr-2" />결근 학생 ({selectedDailyDetail.absent.length}명)</h3>
-                  <div className="bg-red-50 rounded-lg p-4 max-h-48 overflow-y-auto">
-                    {selectedDailyDetail.absent.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedDailyDetail.absent.map(student => renderStudentCard(student, 'absent'))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-2">결근 학생이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-                {/* 휴가 */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center"><Plane className="w-5 h-5 text-yellow-600 mr-2" />휴가 학생 ({selectedDailyDetail.vacation.length}명)</h3>
-                  <div className="bg-yellow-50 rounded-lg p-4 max-h-48 overflow-y-auto">
-                    {selectedDailyDetail.vacation.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedDailyDetail.vacation.map(student => renderStudentCard(student, 'vacation'))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-2">휴가 학생이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 } 

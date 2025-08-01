@@ -54,13 +54,65 @@ export default function FacultyAttendancePage() {
     attendanceRate: 92.9
   })
 
+
+
+  // 대기 중인 휴가 신청
+  const [pendingVacations] = useState([
+    {
+      id: '1',
+      studentName: '김학생',
+      studentId: '2024001',
+      type: '병가',
+      startDate: '2024-01-25',
+      endDate: '2024-01-26',
+      reason: '몸살로 인한 병가',
+      requestDate: '2024-01-20',
+      emoji: '🤒'
+    },
+    {
+      id: '2',
+      studentName: '정학생',
+      studentId: '2024005',
+      type: '휴가',
+      startDate: '2024-01-30',
+      endDate: '2024-01-30',
+      reason: '가족 행사 참석',
+      requestDate: '2024-01-18',
+      emoji: '🎉'
+    }
+  ])
+
   const unreadNotifications = notifications.filter(n => !n.isRead).length
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'present': return 'bg-green-100 text-green-800'
+      case 'late': return 'bg-yellow-100 text-yellow-600'
+      case 'absent': return 'bg-red-100 text-red-800'
+      case 'vacation': return 'bg-purple-100 text-purple-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'present': return '출근'
+      case 'late': return '지각'
+      case 'absent': return '결근'
+      case 'vacation': return '휴가'
+      default: return '-'
+    }
+  }
 
   const CircularProgress = ({ percentage, size = 100 }: { percentage: number, size?: number }) => {
     const radius = (size - 8) / 2
     const circumference = 2 * Math.PI * radius
     const strokeDasharray = circumference
-    const actualStrokeDashoffset = circumference - (percentage / 100) * circumference
+    const strokeDashoffset = circumference - (percentage / 100) * circumference
+    
+    // 92.9%에 맞는 정확한 계산
+    const actualPercentage = percentage
+    const actualStrokeDashoffset = circumference - (actualPercentage / 100) * circumference
 
     return (
       <div className="relative" style={{ width: size, height: size }}>
@@ -99,13 +151,17 @@ export default function FacultyAttendancePage() {
     )
   }
 
+  const handleVacationAction = (id: string, action: 'approve' | 'reject') => {
+    alert(`휴가 신청을 ${action === 'approve' ? '승인' : '거절'}했습니다.`)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 헤더 */}
       <div className="bg-white shadow-sm px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-semibold text-gray-800">출석 관리</h1>
+                          <h1 className="text-lg font-semibold text-gray-800">출석 관리</h1>
             <p className="text-sm text-gray-600">{currentUser.name} • {currentUser.department}</p>
           </div>
           <div className="flex items-center space-x-3">
@@ -124,7 +180,7 @@ export default function FacultyAttendancePage() {
 
             {/* 설정 버튼 */}
             <button 
-              onClick={() => navigate('/work-time-settings')}
+              onClick={() => navigate('/work_time_settings')}
               className="p-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
               title="출퇴근 시간 설정"
             >
@@ -188,14 +244,14 @@ export default function FacultyAttendancePage() {
               <h2 className="text-lg font-semibold text-gray-900 mb-4">빠른 액션</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <button
-                  onClick={() => navigate('/project-management')}
+                  onClick={() => navigate('/group-management')}
                   className="flex flex-col items-center p-4 bg-blue-50 rounded-2xl hover:bg-blue-100 transition-colors border-2 border-blue-200"
                 >
                   <BarChart3 className="w-8 h-8 text-blue-600 mb-2" />
                   <span className="text-sm font-medium text-blue-900">그룹 관리</span>
                 </button>
                 <button
-                  onClick={() => navigate('/qr-generator')}
+                  onClick={() => navigate('/qr_generator')}
                   className="flex flex-col items-center p-4 bg-green-50 rounded-2xl hover:bg-green-100 transition-colors border-2 border-green-200"
                 >
                   <QrCode className="w-8 h-8 text-green-600 mb-2" />
@@ -209,7 +265,7 @@ export default function FacultyAttendancePage() {
                   <span className="text-sm font-medium text-purple-900">휴가 관리</span>
                 </button>
                 <button
-                  onClick={() => navigate('/work-time-settings')}
+                  onClick={() => navigate('/work_time_settings')}
                   className="flex flex-col items-center p-4 bg-orange-50 rounded-2xl hover:bg-orange-100 transition-colors border-2 border-orange-200"
                 >
                   <Settings className="w-8 h-8 text-orange-600 mb-2" />
@@ -217,6 +273,8 @@ export default function FacultyAttendancePage() {
                 </button>
               </div>
             </div>
+
+
 
             {/* 실시간 활동 */}
             <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200">
@@ -289,6 +347,8 @@ export default function FacultyAttendancePage() {
             </div>
           </div>
         )}
+
+
       </div>
 
       {/* 하단 네비게이션 */}
@@ -305,7 +365,7 @@ export default function FacultyAttendancePage() {
           </button>
 
           <button
-            onClick={() => navigate('/project-management')}
+            onClick={() => navigate('/group-management')}
             className="flex flex-col items-center py-2 px-3 rounded-lg text-gray-600 hover:text-blue-600"
           >
             <Users size={20} />
@@ -313,7 +373,7 @@ export default function FacultyAttendancePage() {
           </button>
 
           <button
-            onClick={() => navigate('/qr-generator')}
+            onClick={() => navigate('/qr_generator')}
             className="flex flex-col items-center py-2 px-3 rounded-lg text-gray-600 hover:text-blue-600"
           >
             <QrCode size={20} />
@@ -321,7 +381,7 @@ export default function FacultyAttendancePage() {
           </button>
 
           <button
-            onClick={() => navigate('/work-time-settings')}
+            onClick={() => navigate('/work_time_settings')}
             className="flex flex-col items-center py-2 px-3 rounded-lg text-gray-600 hover:text-blue-600"
           >
             <Settings size={20} />
@@ -398,4 +458,4 @@ export default function FacultyAttendancePage() {
       )}
     </div>
   )
-}
+} 

@@ -1,549 +1,338 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowLeft, MapPin, Navigation } from 'lucide-react'
-import QRCode from 'qrcode'
-import { getLocations, addLocation, deleteLocation, getCurrentUser, type User } from '../lib/supabase'
+import React, { useState, useEffect } from 'react'
+import { ArrowLeft, MapPin, Plus, Trash2, QrCode, Map, Navigation } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
 
-declare global {
-  interface Window {
-    kakao: any
-    currentKakaoMap: any
-  }
+interface Location {
+  id: string
+  name: string
+  latitude?: number
+  longitude?: number
+  qrCode: string
 }
 
 export default function QRGeneratorPage() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [locations, setLocations] = useState<{id: string, name: string, latitude?: number, longitude?: number}[]>([])
-  const [newLocation, setNewLocation] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string>('')
+  const [currentUser] = useState({
+    name: '교수님',
+    role: 'faculty'
+  })
   
-  // 지도 관련 상태
+  const [locations, setLocations] = useState<Location[]>([
+    {
+      id: '1',
+      name: '손봉기 교수님 연구실',
+      latitude: 37.5665,
+      longitude: 126.9780,
+      qrCode: 'research_room_001'
+    },
+    {
+      id: '2', 
+      name: 'MBC 사무실',
+      latitude: 37.5676,
+      longitude: 126.9779,
+      qrCode: 'mbc_office_001'
+    }
+  ])
+  
+  const [newLocation, setNewLocation] = useState('')
+  const [showAddModal, setShowAddModal] = useState(false)
   const [showMapModal, setShowMapModal] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<{lat: number, lng: number} | null>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
-  const [map, setMap] = useState<any>(null)
-  const [currentMarker, setCurrentMarker] = useState<any>(null)
-  const [allMarkers, setAllMarkers] = useState<any[]>([])
-  
-  // 전역 마커 배열 (확실한 마커 관리)
-  let markers: any[] = []
-  
-  // 기존에 있던 마커들을 모두 지우는 함수 (제안받은 로직)
-  const clearMarkers = () => {
-    console.log('=== 기존 마커 제거 시작 ===')
-    console.log(`제거할 마커 개수: ${markers.length}`)
-    
-    for (let i = 0; i < markers.length; i++) {
-      if (markers[i]) {
-        console.log(`마커 ${i} 제거`)
-        markers[i].setMap(null) // 이전 마커를 지도에서 제거
-      }
-    }
-    markers.length = 0 // markers 배열 초기화
-    
-    // React 상태도 초기화
-    setCurrentMarker(null)
-    setAllMarkers([])
-    
-    console.log('=== 마커 제거 완료 ===')
-  }
+  const [isLoading, setIsLoading] = useState(false)
 
-  // 장소 목록 불러오기
-  const loadLocations = async () => {
-    setIsLoading(true)
-    setError('')
-    try {
-      const data = await getLocations()
-      setLocations(data)
-    } catch (e) {
-      setError('장소 목록을 불러오지 못했습니다.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    const user = getCurrentUser()
-    setCurrentUser(user)
-    console.log('[QRGeneratorPage] currentUser:', user)
-    loadLocations()
-  }, [])
-
-  // 장소 추가 (지도 모달 열기)
   const handleAddLocation = () => {
-    if (!newLocation.trim()) {
-      setError('장소 이름을 입력해주세요.')
-      return
-    }
-    setError('')
-    openMapModal()
+    if (!newLocation.trim()) return
+    setShowAddModal(true)
   }
 
-  // 실제 장소 저장
-  const saveLocationWithCoords = async () => {
+  const saveLocationWithCoords = () => {
     if (!newLocation.trim() || !selectedLocation) return
     
-    setIsLoading(true)
-    const ok = await addLocation(
-      newLocation.trim(), 
-      selectedLocation.lat, 
-      selectedLocation.lng
-    )
-    if (ok) {
-      setNewLocation('')
-      setSelectedLocation(null)
-      setShowMapModal(false)
-      loadLocations()
-    } else {
-      setError('장소 추가에 실패했습니다.')
+    const newLoc: Location = {
+      id: Date.now().toString(),
+      name: newLocation.trim(),
+      latitude: selectedLocation.lat,
+      longitude: selectedLocation.lng,
+      qrCode: `location_${Date.now()}`
     }
-    setIsLoading(false)
-  }
-
-  // 장소 삭제
-  const handleDeleteLocation = async (id: string) => {
-    setIsLoading(true)
-    const ok = await deleteLocation(id)
-    if (ok) {
-      loadLocations()
-    } else {
-      setError('장소 삭제에 실패했습니다.')
-    }
-    setIsLoading(false)
-  }
-
-  // 교수(관리자) 권한 확인 (currentUser가 null이어도 true로 처리)
-  const isProfessor = !currentUser || currentUser.role === 'faculty'
-
-  // 카카오 지도 스크립트 로드
-  const loadKakaoMap = () => {
-    return new Promise<void>((resolve, reject) => {
-      const kakaoKey = import.meta.env.VITE_KAKAO_MAP_KEY || 'f81af0e933045defa1569ad7f5917046'
-      
-      if (window.kakao && window.kakao.maps) {
-        resolve()
-        return
-      }
-      
-      // 기존 스크립트가 있는지 확인
-      const existingScript = document.querySelector('script[src*="dapi.kakao.com"]')
-      if (existingScript) {
-        existingScript.addEventListener('load', () => {
-          window.kakao.maps.load(() => {
-            setMapLoaded(true)
-            resolve()
-          })
-        })
-        return
-      }
-      
-      const script = document.createElement('script')
-      script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&autoload=false`
-      script.async = true
-      script.defer = true
-      
-      script.onload = () => {
-        if (window.kakao && window.kakao.maps) {
-          window.kakao.maps.load(() => {
-            setMapLoaded(true)
-            console.log('카카오 지도 로드 완료')
-            resolve()
-          })
-        } else {
-          console.error('카카오 지도 객체를 찾을 수 없습니다.')
-          reject(new Error('카카오 지도 로드 실패'))
-        }
-      }
-      
-      script.onerror = (error) => {
-        console.error('카카오 지도 스크립트 로드 오류:', error)
-        reject(new Error('카카오 지도 스크립트 로드 실패'))
-      }
-      
-      document.head.appendChild(script)
-    })
-  }
-
-  // 지도 초기화
-  const initializeMap = async () => {
-    await loadKakaoMap()
     
-    const container = document.getElementById('kakao-map')
-    if (!container || !window.kakao) {
-      console.error('지도 컨테이너 또는 카카오 맵 객체를 찾을 수 없습니다.')
-      return
-    }
-
-    try {
-      const options = {
-        center: new window.kakao.maps.LatLng(37.5665, 126.9780), // 서울 시청 기본 좌표
-        level: 3,
-        // 모바일 환경을 위한 추가 옵션들
-        draggable: true,
-        scrollwheel: true,
-        doubleClickZoom: true,
-        keyboardShortcuts: true
-      }
-
-      const newMap = new window.kakao.maps.Map(container, options)
-      setMap(newMap)
-      
-      // 지도 크기 재조정 (모바일에서 중요)
-      setTimeout(() => {
-        newMap.relayout()
-      }, 100)
-
-      // 마커 추가/제거 함수
-      const addMarker = (latlng: any) => {
-        console.log('=== 새 마커 추가 시도 ===')
-        console.log('클릭 좌표:', latlng.getLat(), latlng.getLng())
-        console.log('현재 지도 객체:', newMap ? 'O' : 'X')
-        console.log('window.kakao 상태:', window.kakao ? 'O' : 'X')
-        
-        // 모든 기존 마커 제거
-        clearMarkers()
-        
-        // 새 위치 설정
-        const newLocation = {
-          lat: latlng.getLat(),
-          lng: latlng.getLng()
-        }
-        setSelectedLocation(newLocation)
-        console.log('선택된 위치 설정:', newLocation)
-        
-        // 지도 객체 확인 및 새 마커 생성
-        if (!newMap) {
-          console.error('지도 객체가 없습니다!')
-          return
-        }
-        
-        if (!window.kakao || !window.kakao.maps) {
-          console.error('카카오맵 API가 로드되지 않았습니다!')
-          return
-        }
-        
-        try {
-          // 새 마커 생성 (제안받은 로직)
-          console.log('마커 생성 중...')
-          const marker = new window.kakao.maps.Marker({
-            position: latlng,
-            map: newMap
-          })
-          
-          // 마커를 지도에 명시적으로 설정
-          marker.setMap(newMap)
-          console.log('마커를 지도에 추가함')
-          
-          // 생성된 마커를 배열에 추가 (핵심!)
-          markers.push(marker)
-          console.log(`마커 배열에 추가됨. 총 마커 개수: ${markers.length}`)
-          
-          // React 상태 업데이트
-          setCurrentMarker(marker)
-          setAllMarkers([...markers])
-          
-          console.log('=== 새 마커 추가 완료 ===')
-          
-        } catch (error) {
-          console.error('마커 생성 중 오류:', error)
-        }
-      }
-
-      // 클릭 이벤트 등록 (모바일 터치 이벤트 포함)
-      window.kakao.maps.event.addListener(newMap, 'click', (mouseEvent: any) => {
-        addMarker(mouseEvent.latLng)
-      })
-      
-      // 터치 이벤트도 추가로 등록 (모바일 환경)
-      window.kakao.maps.event.addListener(newMap, 'touchend', (mouseEvent: any) => {
-        if (mouseEvent.latLng) {
-          addMarker(mouseEvent.latLng)
-        }
-      })
-      
-      console.log('지도 초기화 완료')
-    } catch (error) {
-      console.error('지도 초기화 오류:', error)
-    }
-  }
-
-  // 현재 위치로 이동
-  const moveToCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert('이 브라우저에서는 위치 정보가 지원되지 않습니다.')
-      return
-    }
-
-    // 로딩 상태 표시 (옵션)
-    console.log('현재 위치 가져오는 중...')
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        
-        console.log('현재 위치:', { lat, lng })
-        
-        if (map && window.kakao) {
-          const moveLatLng = new window.kakao.maps.LatLng(lat, lng)
-          map.setCenter(moveLatLng)
-          map.setLevel(2) // 줌 레벨 조정
-          
-          // 현재 위치로 지도만 이동 (마커 생성 없음)
-          console.log('현재 위치로 지도 중심 이동 완료')
-          
-          // 지도 크기 재조정
-          setTimeout(() => {
-            map.relayout()
-          }, 100)
-          
-          console.log('현재 위치로 이동 완료')
-        } else {
-          console.error('지도 객체가 없습니다.')
-          alert('지도가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.')
-        }
-      },
-      (error) => {
-        console.error('위치 정보를 가져올 수 없습니다:', error)
-        let message = '위치 정보를 가져올 수 없습니다.'
-        
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            message = '위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해 주세요.'
-            break
-          case error.POSITION_UNAVAILABLE:
-            message = '위치 정보를 사용할 수 없습니다.'
-            break
-          case error.TIMEOUT:
-            message = '위치 정보 요청 시간이 초과되었습니다. 다시 시도해주세요.'
-            break
-        }
-        
-        alert(message)
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000, // 모바일에서는 더 긴 타임아웃
-        maximumAge: 30000 // 30초 내 캐시된 위치 사용
-      }
-    )
-  }
-
-  // 지도 모달 열기
-  const openMapModal = async () => {
-    // 기존 상태 완전히 리셋
+    setLocations(prev => [...prev, newLoc])
+    setNewLocation('')
     setSelectedLocation(null)
-    setCurrentMarker(null)
-    setAllMarkers([])
-    setMap(null)
-    
-    // 지도 컨테이너 완전히 클리어
-    const container = document.getElementById('kakao-map')
-    if (container) {
-      container.innerHTML = ''
-    }
-    
-    setShowMapModal(true)
-    
-    // 모달이 열린 후 지도 초기화 (더 긴 지연시간으로 완전한 초기화 보장)
-    setTimeout(() => {
-      initializeMap()
-    }, 500)
-  }
-
-  // 지도 모달 닫기
-  const closeMapModal = () => {
-    // 모든 마커 정리
-    if (currentMarker) {
-      currentMarker.setMap(null)
-      setCurrentMarker(null)
-    }
-    allMarkers.forEach(marker => {
-      if (marker) {
-        marker.setMap(null)
-      }
-    })
-    setAllMarkers([])
+    setShowAddModal(false)
     setShowMapModal(false)
-    setSelectedLocation(null)
-    setMap(null)
+  }
+
+  const handleDeleteLocation = (id: string) => {
+    if (confirm('이 장소를 삭제하시겠습니까?')) {
+      setLocations(prev => prev.filter(loc => loc.id !== id))
+    }
+  }
+
+  const handleMapClick = () => {
+    // 더미 좌표 설정 (실제로는 지도 클릭으로 설정)
+    setSelectedLocation({
+      lat: 37.5665 + Math.random() * 0.01,
+      lng: 126.9780 + Math.random() * 0.01
+    })
+  }
+
+  const getCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setSelectedLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          })
+        },
+        (error) => {
+          alert('위치 정보를 가져올 수 없습니다.')
+        }
+      )
+    }
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-      <div className="w-full max-w-4xl bg-white rounded-lg shadow-lg p-6 relative">
-        <Link to={currentUser && currentUser.role === 'faculty' ? "/attendance?tab=records" : "/attendance"} className="absolute top-4 left-4 text-gray-500 hover:text-gray-800">
-          <ArrowLeft size={24} />
-        </Link>
-        <h1 className="text-2xl font-bold text-center mb-6 text-gray-800">장소별 출석 QR 코드</h1>
-
-        {isLoading && (
-          <div className="flex flex-col items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            <p className="mt-4 text-gray-600">QR 코드 생성 중...</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* 헤더 */}
+      <div className="bg-white shadow-sm px-4 py-4">
+        <div className="flex items-center space-x-4">
+          <button 
+            onClick={() => window.history.back()}
+            className="p-2 hover:bg-gray-100 rounded-lg"
+          >
+            <ArrowLeft size={20} className="text-gray-600" />
+          </button>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-800">QR 코드 관리</h1>
+            <p className="text-sm text-gray-600">장소별 출퇴근 QR 코드를 생성하고 관리하세요</p>
           </div>
-        )}
+        </div>
+      </div>
 
-        {error && (
-          <div className="flex flex-col items-center justify-center h-64 bg-red-50 rounded-lg p-4">
-            <p className="text-red-700 font-semibold">오류 발생</p>
-            <p className="mt-2 text-sm text-red-600 text-center">{error}</p>
-          </div>
-        )}
-
-        {!isLoading && !error && (
-          <div className="w-full">
-            <h1 className="text-2xl font-bold mb-6">장소별 출석 QR 코드</h1>
-            <div className="flex gap-2 mb-6">
+      <div className="p-4 space-y-6">
+        {/* 새 장소 추가 */}
+        <div className="bg-white rounded-2xl shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <Plus className="w-5 h-5 mr-2 text-blue-600" />
+            새 장소 추가
+          </h2>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">장소 이름</label>
               <input
                 type="text"
-                className="border rounded px-2 py-1 flex-1"
-                placeholder="새 장소 이름 입력"
                 value={newLocation}
-                onChange={e => setNewLocation(e.target.value)}
-                disabled={isLoading}
+                onChange={(e) => setNewLocation(e.target.value)}
+                placeholder="예: 3층 강의실, 회의실 A 등"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
-              <button
-                className="bg-blue-600 text-white px-4 py-1 rounded disabled:opacity-50 flex items-center gap-2"
-                onClick={handleAddLocation}
-                disabled={isLoading || !newLocation.trim()}
-              >
-                <MapPin size={16} />
-                추가
-              </button>
             </div>
-            {error && <div className="text-red-500 mb-2">{error}</div>}
-            <div
-              className="w-full flex flex-wrap justify-center gap-6"
-              style={{ rowGap: '2rem' }}
+            
+            <button
+              onClick={handleAddLocation}
+              disabled={!newLocation.trim()}
+              className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
             >
-              {locations.length === 0 && (
-                <div className="text-gray-400 text-center w-full py-8">등록된 장소가 없습니다. 장소를 추가해 주세요.</div>
-              )}
-              {locations.map((loc, index) => (
-                <div
-                  key={loc.id}
-                  className="flex flex-col items-center bg-white p-4 rounded-lg shadow"
-                  style={{ minWidth: 260, maxWidth: 320, flex: '1 1 260px' }}
-                >
-                  <h2 className="text-lg font-semibold text-gray-800 mb-2">{loc.name}</h2>
+              <MapPin size={20} />
+              <span>위치 설정하고 추가</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 기존 장소 목록 */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-800 flex items-center">
+            <QrCode className="w-5 h-5 mr-2 text-green-600" />
+            등록된 장소 ({locations.length}개)
+          </h2>
+          
+          {locations.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+              <QrCode className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">등록된 장소가 없습니다.</p>
+              <p className="text-sm text-gray-400 mt-1">위에서 새 장소를 추가해보세요.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {locations.map((location) => (
+                <div key={location.id} className="bg-white rounded-2xl shadow-sm p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800">{location.name}</h3>
+                      {location.latitude && location.longitude && (
+                        <div className="flex items-center text-sm text-gray-500 mt-1">
+                          <MapPin size={14} className="mr-1" />
+                          <span>{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</span>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDeleteLocation(location.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                   
-                  {/* 위치 정보 표시 */}
-                  {loc.latitude && loc.longitude && (
-                    <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <MapPin size={12} />
-                        위도: {loc.latitude.toFixed(6)}
-                      </div>
-                      <div className="flex items-center gap-1 mt-1">
-                        <MapPin size={12} />
-                        경도: {loc.longitude.toFixed(6)}
+                  <div className="flex flex-col lg:flex-row items-center lg:items-start space-y-4 lg:space-y-0 lg:space-x-6">
+                    {/* QR 코드 */}
+                    <div className="flex-shrink-0">
+                      <div className="bg-white p-4 rounded-xl border-2 border-gray-100">
+                        <QRCodeCanvas 
+                          value={location.qrCode} 
+                          size={200}
+                          level="M"
+                          includeMargin={true}
+                        />
                       </div>
                     </div>
-                  )}
-                  
-                  <div className="bg-white p-4 rounded-lg shadow-inner mb-2">
-                    <QRCodeCanvas value={loc.name} size={250} />
+                    
+                    {/* 장소 정보 */}
+                    <div className="flex-1 w-full">
+                      <div className="space-y-3">
+                        <div className="bg-gray-50 rounded-xl p-4">
+                          <h4 className="font-medium text-gray-800 mb-2">QR 코드 정보</h4>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">코드 ID:</span>
+                              <span className="font-mono text-gray-800">{location.qrCode}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">생성일:</span>
+                              <span className="text-gray-800">2024년 1월 17일</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">사용 횟수:</span>
+                              <span className="text-gray-800">156회</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <button className="flex-1 bg-blue-100 text-blue-700 py-2 px-4 rounded-lg font-medium hover:bg-blue-200 transition-colors text-sm">
+                            QR 다운로드
+                          </button>
+                          <button className="flex-1 bg-green-100 text-green-700 py-2 px-4 rounded-lg font-medium hover:bg-green-200 transition-colors text-sm">
+                            위치 확인
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  {isProfessor && (
-                    <button
-                      className="text-xs text-red-500 hover:underline mt-2"
-                      onClick={() => handleDeleteLocation(loc.id)}
-                      disabled={isLoading}
-                    >
-                      삭제
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {!currentUser && (
-        <div className="mt-4 text-center">
-          <Link to="/" className="text-sm text-blue-600 hover:underline">
-            로그인하여 QR 코드 관리하기
-          </Link>
-        </div>
-      )}
-
-      {/* 지도 모달 */}
-      {showMapModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
-          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-3xl mx-2 sm:mx-4 max-h-[95vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-base sm:text-lg font-semibold truncate pr-2">"{newLocation}" 장소의 위치 선택</h3>
-              <button
-                onClick={closeMapModal}
-                className="text-gray-500 hover:text-gray-700 flex-shrink-0"
-              >
-                ✕
-              </button>
-            </div>
+      {/* 장소 추가 모달 */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+              <MapPin className="w-5 h-5 mr-2 text-blue-600" />
+              "{newLocation}" 위치 설정
+            </h3>
             
-            <p className="text-xs sm:text-sm text-gray-600 mb-4">
-              지도에서 "{newLocation}" 장소의 정확한 위치를 터치하여 선택하세요.
+            <p className="text-sm text-gray-600 mb-6">
+              QR 코드 스캔 시 위치 확인을 위해 정확한 장소의 좌표를 설정해주세요.
             </p>
             
-            {/* 현재 위치 버튼 */}
-            <div className="mb-4">
+            <div className="space-y-4">
               <button
-                onClick={moveToCurrentLocation}
-                className="bg-green-600 text-white px-3 py-2 sm:px-4 sm:py-2 rounded hover:bg-green-700 flex items-center gap-2 text-sm"
+                onClick={getCurrentLocation}
+                className="w-full bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 transition-colors flex items-center justify-center space-x-2"
               >
-                <Navigation size={14} />
-                현재 위치로 이동
+                <Navigation size={20} />
+                <span>현재 위치 사용</span>
               </button>
+              
+              <button
+                onClick={() => setShowMapModal(true)}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2"
+              >
+                <Map size={20} />
+                <span>지도에서 선택</span>
+              </button>
+              
+              {selectedLocation && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <p className="text-sm font-medium text-blue-800 mb-2">선택된 위치:</p>
+                  <p className="text-xs text-blue-600 font-mono">
+                    위도: {selectedLocation.lat.toFixed(6)}<br/>
+                    경도: {selectedLocation.lng.toFixed(6)}
+                  </p>
+                </div>
+              )}
             </div>
             
-            <div
-              id="kakao-map"
-              className="w-full h-64 sm:h-80 md:h-96 border rounded-lg mb-4 touch-manipulation"
-              style={{ 
-                minHeight: '250px',
-                touchAction: 'manipulation',
-                position: 'relative'
-              }}
-              key={showMapModal ? 'map-open' : 'map-closed'} // 키 변경으로 강제 재렌더링
-            ></div>
-            
-            {selectedLocation && (
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
-                <p className="text-xs sm:text-sm text-blue-700">
-                  <strong>선택된 위치:</strong><br />
-                  위도: {selectedLocation.lat.toFixed(6)}<br />
-                  경도: {selectedLocation.lng.toFixed(6)}
-                </p>
-              </div>
-            )}
-            
-            <div className="flex flex-col sm:flex-row justify-end gap-2">
+            <div className="flex space-x-3 mt-6">
               <button
-                onClick={closeMapModal}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50 text-sm"
+                onClick={() => {
+                  setShowAddModal(false)
+                  setSelectedLocation(null)
+                }}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
               >
                 취소
               </button>
               <button
                 onClick={saveLocationWithCoords}
-                disabled={!selectedLocation || isLoading}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                disabled={!selectedLocation}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {isLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    저장 중...
-                  </>
-                ) : (
-                  <>
-                    <MapPin size={14} />
-                    장소 저장
-                  </>
-                )}
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 지도 선택 모달 */}
+      {showMapModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">지도에서 위치 선택</h3>
+            
+            <div
+              className="w-full h-80 bg-gray-200 rounded-xl mb-4 cursor-pointer flex items-center justify-center"
+              onClick={handleMapClick}
+            >
+              <div className="text-center">
+                <Map size={48} className="text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500">지도를 클릭하여 위치를 선택하세요</p>
+                <p className="text-sm text-gray-400 mt-1">(실제 구현시 카카오맵/구글맵 연동)</p>
+              </div>
+            </div>
+            
+            {selectedLocation && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+                <p className="text-sm font-medium text-green-800 mb-2">선택된 좌표:</p>
+                <p className="text-xs text-green-600 font-mono">
+                  {selectedLocation.lat.toFixed(6)}, {selectedLocation.lng.toFixed(6)}
+                </p>
+              </div>
+            )}
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowMapModal(false)
+                  setSelectedLocation(null)
+                }}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => setShowMapModal(false)}
+                disabled={!selectedLocation}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                선택 완료
               </button>
             </div>
           </div>
