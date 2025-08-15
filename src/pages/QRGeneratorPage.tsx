@@ -1,70 +1,125 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Plus, Trash2, QrCode, Map, Navigation } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
-
-interface Location {
-  id: string
-  name: string
-  latitude?: number
-  longitude?: number
-  qrCode: string
-}
+import { useAuth } from '../contexts/AuthContext'
+import { 
+  getGroupLocations,
+  createLocation,
+  getFacultyGroups
+} from '../lib/supabase'
+import type { Location, Group } from '../types'
+import KakaoMap from '../components/KakaoMap'
 
 export default function QRGeneratorPage() {
-  const [currentUser] = useState({
-    name: '교수님',
-    role: 'faculty'
-  })
+  const navigate = useNavigate()
+  const { user, logout } = useAuth()
   
-  const [locations, setLocations] = useState<Location[]>([
-    {
-      id: '1',
-      name: '손봉기 교수님 연구실',
-      latitude: 37.5665,
-      longitude: 126.9780,
-      qrCode: 'research_room_001'
-    },
-    {
-      id: '2', 
-      name: 'MBC 사무실',
-      latitude: 37.5676,
-      longitude: 126.9779,
-      qrCode: 'mbc_office_001'
-    }
-  ])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [locations, setLocations] = useState<Location[]>([])
+  const [facultyGroups, setFacultyGroups] = useState<Group[]>([])
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   
   const [newLocation, setNewLocation] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [showMapModal, setShowMapModal] = useState(false)
-  const [selectedLocation, setSelectedLocation] = useState<{lat: number, lng: number} | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [selectedLocation, setSelectedLocation] = useState<{lat: number, lng: number, address?: string} | null>(null)
+
+  // 인증 확인
+  useEffect(() => {
+    if (!user || user.role !== 'faculty') {
+      navigate('/')
+      return
+    }
+  }, [user, navigate])
+
+  // 데이터 로드
+  useEffect(() => {
+    if (!user || user.role !== 'faculty') return
+    
+    loadData()
+  }, [user])
+
+  const loadData = async () => {
+    if (!user) return
+
+    try {
+      setLoading(true)
+
+      // 교수가 관리하는 그룹 조회
+      const groups = await getFacultyGroups(user.id)
+      setFacultyGroups(groups)
+      
+      if (groups.length > 0) {
+        const firstGroup = groups[0]
+        setSelectedGroup(firstGroup)
+        
+        // 첫 번째 그룹의 위치 목록 조회
+        await loadLocations(firstGroup.id)
+      }
+
+    } catch (error) {
+      console.error('데이터 로드 실패:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadLocations = async (groupId: string) => {
+    try {
+      const groupLocations = await getGroupLocations(groupId)
+      setLocations(groupLocations)
+    } catch (error) {
+      console.error('위치 목록 로드 실패:', error)
+    }
+  }
 
   const handleAddLocation = () => {
     if (!newLocation.trim()) return
     setShowAddModal(true)
   }
 
-  const saveLocationWithCoords = () => {
-    if (!newLocation.trim() || !selectedLocation) return
+  const saveLocationWithCoords = async () => {
+    if (!newLocation.trim() || !selectedLocation || !selectedGroup) return
     
-    const newLoc: Location = {
-      id: Date.now().toString(),
-      name: newLocation.trim(),
-      latitude: selectedLocation.lat,
-      longitude: selectedLocation.lng,
-      qrCode: `location_${Date.now()}`
+    try {
+      setSubmitting(true)
+      
+      const locationData = {
+        group_id: selectedGroup.id,
+        name: newLocation.trim(),
+        latitude: selectedLocation.lat,
+        longitude: selectedLocation.lng,
+        address: selectedLocation.address || '',
+        is_active: true
+      }
+      
+      await createLocation(locationData)
+      setNewLocation('')
+      setSelectedLocation(null)
+      setShowAddModal(false)
+      setShowMapModal(false)
+      
+      // 목록 새로고침
+      await loadLocations(selectedGroup.id)
+
+    } catch (error) {
+      console.error('위치 저장 실패:', error)
+    } finally {
+      setSubmitting(false)
     }
-    
-    setLocations(prev => [...prev, newLoc])
-    setNewLocation('')
-    setSelectedLocation(null)
-    setShowAddModal(false)
-    setShowMapModal(false)
   }
 
-  const handleDeleteLocation = (id: string) => {
-    if (confirm('이 장소를 삭제하시겠습니까?')) {
+  const handleDeleteLocation = async (id: string) => {
+    if (!confirm('이 장소를 삭제하시겠습니까?')) return
+    
+    try {
+      // 위치 삭제 API가 없으므로 is_active를 false로 설정하거나 
+      // 로컬에서만 제거 (실제로는 soft delete 구현 필요)
       setLocations(prev => prev.filter(loc => loc.id !== id))
+    } catch (error) {
+      console.error('위치 삭제 실패:', error)
     }
   }
 
@@ -90,6 +145,21 @@ export default function QRGeneratorPage() {
         }
       )
     }
+  }
+
+  if (!user || user.role !== 'faculty') {
+    return null
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">위치 목록을 불러오는 중...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -162,9 +232,14 @@ export default function QRGeneratorPage() {
                     <div>
                       <h3 className="text-lg font-semibold text-gray-800">{location.name}</h3>
                       {location.latitude && location.longitude && (
-                        <div className="flex items-center text-sm text-gray-500 mt-1">
-                          <MapPin size={14} className="mr-1" />
-                          <span>{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</span>
+                        <div className="flex items-start text-sm text-gray-500 mt-1">
+                          <MapPin size={14} className="mr-1 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="font-mono text-xs">{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</div>
+                            {location.address && (
+                              <div className="text-xs text-gray-400 mt-1">{location.address}</div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -181,7 +256,14 @@ export default function QRGeneratorPage() {
                     <div className="flex-shrink-0">
                       <div className="bg-white p-4 rounded-xl border-2 border-gray-100">
                         <QRCodeCanvas 
-                          value={location.qrCode} 
+                          value={JSON.stringify({
+                            type: 'location',
+                            id: location.id,
+                            name: location.name,
+                            latitude: location.latitude,
+                            longitude: location.longitude,
+                            address: location.address
+                          })} 
                           size={200}
                           level="M"
                           includeMargin={true}
@@ -197,7 +279,7 @@ export default function QRGeneratorPage() {
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span className="text-gray-600">코드 ID:</span>
-                              <span className="font-mono text-gray-800">{location.qrCode}</span>
+                              <span className="font-mono text-gray-800">{location.id}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-600">생성일:</span>
@@ -261,10 +343,13 @@ export default function QRGeneratorPage() {
               {selectedLocation && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                   <p className="text-sm font-medium text-blue-800 mb-2">선택된 위치:</p>
-                  <p className="text-xs text-blue-600 font-mono">
+                  <p className="text-xs text-blue-600 font-mono mb-2">
                     위도: {selectedLocation.lat.toFixed(6)}<br/>
                     경도: {selectedLocation.lng.toFixed(6)}
                   </p>
+                  {selectedLocation.address && (
+                    <p className="text-xs text-blue-600">{selectedLocation.address}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -291,52 +376,20 @@ export default function QRGeneratorPage() {
         </div>
       )}
 
-      {/* 지도 선택 모달 */}
+      {/* 카카오맵 선택 모달 */}
       {showMapModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">지도에서 위치 선택</h3>
-            
-            <div
-              className="w-full h-80 bg-gray-200 rounded-xl mb-4 cursor-pointer flex items-center justify-center"
-              onClick={handleMapClick}
-            >
-              <div className="text-center">
-                <Map size={48} className="text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-500">지도를 클릭하여 위치를 선택하세요</p>
-                <p className="text-sm text-gray-400 mt-1">(실제 구현시 카카오맵/구글맵 연동)</p>
-              </div>
-            </div>
-            
-            {selectedLocation && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
-                <p className="text-sm font-medium text-green-800 mb-2">선택된 좌표:</p>
-                <p className="text-xs text-green-600 font-mono">
-                  {selectedLocation.lat.toFixed(6)}, {selectedLocation.lng.toFixed(6)}
-                </p>
-              </div>
-            )}
-            
-            <div className="flex space-x-3">
-              <button
-                onClick={() => {
-                  setShowMapModal(false)
-                  setSelectedLocation(null)
-                }}
-                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
-              >
-                취소
-              </button>
-              <button
-                onClick={() => setShowMapModal(false)}
-                disabled={!selectedLocation}
-                className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                선택 완료
-              </button>
-            </div>
-          </div>
-        </div>
+        <KakaoMap
+          onLocationSelect={(lat, lng, address) => {
+            setSelectedLocation({ lat, lng, address })
+            setShowMapModal(false)
+          }}
+          onCancel={() => {
+            setShowMapModal(false)
+            setSelectedLocation(null)
+          }}
+          initialLat={37.5665}
+          initialLng={126.9780}
+        />
       )}
     </div>
   )

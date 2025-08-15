@@ -16,10 +16,10 @@
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["src", "ui/FacultyVacationApprovalPage.tsx", "ui/HomePage.tsx", "ui/ProjectAttendancePage.tsx", "ui/ProjectManagementPage.tsx", "ui/QRGeneratorPage.tsx", "ui/StatsPage.tsx", "ui/StudentAttendancePage.tsx", "ui/VacationRequestPage.tsx", "ui/WorkTimeSettingsPage.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 } 

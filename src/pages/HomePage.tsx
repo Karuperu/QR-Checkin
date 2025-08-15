@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Clock, User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Building2, GraduationCap } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+// import { testDatabaseConnection } from '../lib/supabase' // 사용하지 않음
 
 export default function HomePage() {
   const navigate = useNavigate()
+  const { user, login, signup } = useAuth()
   const [isLogin, setIsLogin] = useState(true)
   const [selectedRole, setSelectedRole] = useState<'student' | 'faculty'>('student')
   const [showPassword, setShowPassword] = useState(false)
@@ -17,22 +20,37 @@ export default function HomePage() {
   const [errors, setErrors] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [success, setSuccess] = useState('')
+  // const [dbTestResult, setDbTestResult] = useState<string>('') // 사용하지 않음
 
-  // 더미 계정 데이터
-  const accounts = {
-    student: {
-      userId: 'student',
-      password: '1234',
-      name: '김학생',
-      department: '컴퓨터공학과'
-    },
-    faculty: {
-      userId: 'faculty',
-      password: '1234',
-      name: '손봉기 교수님',
-      department: '컴퓨터공학과'
+  // 데이터베이스 테스트 함수
+  // const handleDbTest = async () => {
+  //   try {
+  //     setDbTestResult('테스트 중...')
+  //     const result = await testDatabaseConnection()
+  //     if (result) {
+  //       setDbTestResult('✅ 데이터베이스 연결 성공!')
+  //     } else {
+  //       setDbTestResult('❌ 데이터베이스 연결 실패!')
+  //     }
+  //   } catch (error) {
+  //     setDbTestResult(`❌ 테스트 오류: ${error}`)
+  //   }
+  // }
+
+
+
+  // 더미 계정 데이터 제거됨 - 실제 DB 계정만 사용
+
+  // 이미 로그인된 사용자는 해당 페이지로 리다이렉트
+  useEffect(() => {
+    if (user) {
+      if (user.role === 'student') {
+        navigate('/student-attendance')
+      } else {
+        navigate('/faculty-attendance')
+      }
     }
-  }
+  }, [user, navigate])
 
   const validateForm = () => {
     const newErrors: string[] = []
@@ -71,69 +89,58 @@ export default function HomePage() {
     setErrors([])
     setSuccess('')
     
-    const validationErrors = validateForm()
-    if (validationErrors.length > 0) {
-      setErrors(validationErrors)
-      return
-    }
+    try {
+      const validationErrors = validateForm()
+      if (validationErrors.length > 0) {
+        setErrors(validationErrors)
+        return
+      }
+      
+      setIsLoading(true)
     
-    setIsLoading(true)
-    
-    // 시뮬레이션 딜레이
-    setTimeout(() => {
       if (isLogin) {
-        // 로그인 처리 - ID/비밀번호로 자동 구분
-        const studentAccount = accounts.student
-        const facultyAccount = accounts.faculty
+        // 로그인 처리
+        const userData = await login(formData.userId, formData.password)
+        setSuccess('로그인 성공!')
         
-        let userRole: 'student' | 'faculty' | null = null
-        
-        if (formData.userId === studentAccount.userId && formData.password === studentAccount.password) {
-          userRole = 'student'
-        } else if (formData.userId === facultyAccount.userId && formData.password === facultyAccount.password) {
-          userRole = 'faculty'
-        }
-        
-        if (userRole) {
-          setSuccess('로그인 성공!')
-          setTimeout(() => {
-            // 역할에 따라 다른 페이지로 이동
-            if (userRole === 'student') {
-              navigate('/student-attendance')
-            } else {
-              navigate('/faculty-attendance')
-            }
-          }, 1000)
-        } else {
-          setErrors(['아이디 또는 비밀번호가 올바르지 않습니다.'])
-        }
+        // 역할에 따라 다른 페이지로 이동
+        setTimeout(() => {
+          if (userData.role === 'student') {
+            navigate('/student-attendance')
+          } else {
+            navigate('/faculty-attendance')
+          }
+        }, 1000)
       } else {
         // 회원가입 처리
+        const signupData = {
+          user_id: formData.userId,
+          name: formData.name,
+          password: formData.password,
+          department: formData.department,
+          role: selectedRole,
+          position: selectedRole === 'faculty' ? '교직원' : undefined,
+          is_active: true
+        }
+        
+        await signup(signupData)
         setSuccess('회원가입이 완료되었습니다!')
+        
         setTimeout(() => {
           setIsLogin(true)
           setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }))
           setSuccess('')
         }, 2000)
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '처리 중 오류가 발생했습니다.'
+      setErrors([errorMessage])
+    } finally {
       setIsLoading(false)
-    }, 1500)
+    }
   }
 
-  const fillDemoCredentials = () => {
-    // 기본적으로 학생 계정으로 설정
-    const account = accounts.student
-    setFormData(prev => ({
-      ...prev,
-      userId: account.userId,
-      password: account.password,
-      ...(isLogin ? {} : { 
-        name: account.name, 
-        department: account.department,
-        confirmPassword: account.password
-      })
-    }))
-  }
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center p-4">
@@ -219,25 +226,21 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* 데모 계정 안내 */}
-          <div className="mb-6 p-4 bg-blue-50 rounded-2xl">
-            <div className="flex items-start space-x-3">
-              <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-blue-800 mb-1">데모 계정</p>
-                <div className="text-xs text-blue-600 mb-2 space-y-1">
-                  <p>학생: ID = student, PW = 1234</p>
-                  <p>교직원: ID = faculty, PW = 1234</p>
+          {/* 실제 계정 안내 */}
+          {isLogin && (
+            <div className="mb-6 p-4 bg-green-50 rounded-2xl">
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-green-800 mb-1">등록된 계정으로 로그인</p>
+                  <div className="text-xs text-green-600 mb-2 space-y-1">
+                    <p>• 기존 계정이 있으시면 학번/교직원번호로 로그인</p>
+                    <p>• 계정이 없으시면 회원가입을 통해 새 계정 생성</p>
+                  </div>
                 </div>
-                <button
-                  onClick={fillDemoCredentials}
-                  className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
-                >
-                  학생 계정 자동 입력
-                </button>
               </div>
             </div>
-          </div>
+          )}
 
           {/* 폼 */}
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -356,6 +359,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={isLoading}
+
               className="btn-primary w-full flex items-center justify-center space-x-2"
             >
               {isLoading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>}
@@ -363,6 +367,8 @@ export default function HomePage() {
             </button>
           </form>
         </div>
+
+
 
         {/* 푸터 */}
         <div className="text-center mt-6">
